@@ -5,12 +5,29 @@ import { LogicalSize } from "@tauri-apps/api/dpi";
 
 const appWindow = getCurrentWebviewWindow();
 
-interface SearchResult {
+type ResultKind = "app" | "command" | "process";
+
+interface DisplayResult {
+  id: number;
+  name: string;
+  detail: string;
+  kind: ResultKind;
+  meta?: string;
+}
+
+interface AppSearchResult {
   id: number;
   name: string;
   path: string;
   score: number;
 }
+
+interface ProcessInfo {
+  name: string;
+  exe: string;
+}
+
+const COMMANDS = [{ name: "close", description: "Close a running application" }];
 
 const BAR_HEIGHT = 72;
 const ROW_HEIGHT = 52;
@@ -18,7 +35,7 @@ const MAX_RESULTS = 8;
 
 function App() {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SearchResult[]>([]);
+  const [results, setResults] = useState<DisplayResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -41,10 +58,54 @@ function App() {
 
     debounceRef.current = setTimeout(async () => {
       try {
-        const res = await invoke<SearchResult[]>("search_apps", { query });
-        setResults(res);
+        let items: DisplayResult[] = [];
+
+        if (query.startsWith("/")) {
+          const afterSlash = query.slice(1);
+          const spaceIdx = afterSlash.indexOf(" ");
+
+          if (spaceIdx === -1) {
+            items = COMMANDS.filter((c) =>
+              c.name.startsWith(afterSlash.toLowerCase()),
+            ).map((c, i) => ({
+              id: i,
+              name: `/${c.name}`,
+              detail: c.description,
+              kind: "command",
+            }));
+          } else {
+            const cmd = afterSlash.slice(0, spaceIdx).toLowerCase();
+            const arg = afterSlash.slice(spaceIdx + 1).trim();
+
+            if (cmd === "close") {
+              const procs = await invoke<ProcessInfo[]>(
+                "search_running_apps",
+                { query: arg },
+              );
+              items = procs.map((p, i) => ({
+                id: i,
+                name: p.name,
+                detail: p.exe,
+                kind: "process",
+                meta: p.exe,
+              }));
+            }
+          }
+        } else if (query.length > 0) {
+          const res = await invoke<AppSearchResult[]>("search_apps", {
+            query,
+          });
+          items = res.map((r) => ({
+            id: r.id,
+            name: r.name,
+            detail: r.path,
+            kind: "app",
+          }));
+        }
+
+        setResults(items);
         setSelectedIndex(0);
-        resizeWindow(res.length);
+        resizeWindow(items.length);
       } catch (e) {
         console.error("Search failed:", e);
       }
@@ -54,6 +115,24 @@ function App() {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [query, resizeWindow]);
+
+  const handleAction = useCallback(
+    (item: DisplayResult) => {
+      if (item.kind === "app") {
+        invoke("launch_app", { id: item.id })
+          .then(() => hideWindow())
+          .catch(console.error);
+      } else if (item.kind === "command") {
+        setQuery(item.name + " ");
+        inputRef.current?.focus();
+      } else if (item.kind === "process") {
+        invoke("close_process", { name: item.meta ?? item.detail })
+          .then(() => hideWindow())
+          .catch(console.error);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -73,35 +152,27 @@ function App() {
           if (results.length > 0) {
             e.preventDefault();
             const selected = results[selectedIndex];
-            if (selected) {
-              invoke("launch_app", { id: selected.id })
-                .then(() => hideWindow())
-                .catch(console.error);
-            }
+            if (selected) handleAction(selected);
           }
           break;
       }
     };
 
-    const handleBlur = () => hideWindow();
     const handleFocus = () => inputRef.current?.focus();
 
     document.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("blur", handleBlur);
     window.addEventListener("focus", handleFocus);
 
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("blur", handleBlur);
       window.removeEventListener("focus", handleFocus);
     };
-  }, [results, selectedIndex, hideWindow]);
+  }, [results, selectedIndex, hideWindow, handleAction]);
 
   const hasResults = results.length > 0;
 
   return (
     <div className="flex w-screen flex-col">
-      {/* Search bar */}
       <div
         className="flex shrink-0 items-center gap-3 px-5"
         style={{
@@ -134,7 +205,6 @@ function App() {
         />
       </div>
 
-      {/* Results */}
       {hasResults && (
         <div
           style={{
@@ -150,7 +220,7 @@ function App() {
             const isSelected = index === selectedIndex;
             return (
               <div
-                key={result.id}
+                key={`${result.kind}-${result.id}`}
                 className="flex cursor-pointer items-center justify-between px-4 transition-colors duration-75"
                 style={{
                   height: ROW_HEIGHT,
@@ -165,19 +235,21 @@ function App() {
                       ? "0 0 16px 16px"
                       : undefined,
                 }}
-                onClick={() => {
-                  invoke("launch_app", { id: result.id })
-                    .then(() => hideWindow())
-                    .catch(console.error);
-                }}
+                onClick={() => handleAction(result)}
                 onMouseEnter={() => setSelectedIndex(index)}
               >
                 <div className="min-w-0 overflow-hidden">
                   <div className="truncate text-sm font-medium text-white">
+                    {result.kind === "process" && (
+                      <span className="mr-2 text-red-400">&#x2715;</span>
+                    )}
+                    {result.kind === "command" && (
+                      <span className="mr-2 text-blue-400">/</span>
+                    )}
                     {result.name}
                   </div>
                   <div className="truncate text-xs text-gray-500">
-                    {result.path}
+                    {result.detail}
                   </div>
                 </div>
                 {isSelected && (
