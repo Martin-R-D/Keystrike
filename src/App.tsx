@@ -5,7 +5,7 @@ import { LogicalSize } from "@tauri-apps/api/dpi";
 
 const appWindow = getCurrentWebviewWindow();
 
-type ResultKind = "app" | "command" | "process";
+type ResultKind = "app" | "command" | "process" | "calc" | "convert";
 
 interface DisplayResult {
   id: number;
@@ -13,6 +13,7 @@ interface DisplayResult {
   detail: string;
   kind: ResultKind;
   meta?: string;
+  copyValue?: string;
 }
 
 interface AppSearchResult {
@@ -27,10 +28,20 @@ interface ProcessInfo {
   exe: string;
 }
 
+interface EvalResult {
+  result_type: string;
+  expression: string;
+  result: number;
+  display: string;
+  input_unit: string | null;
+  output_unit: string | null;
+}
+
 const COMMANDS = [{ name: "close", description: "Close a running application" }];
 
 const BAR_HEIGHT = 72;
 const ROW_HEIGHT = 52;
+const EVAL_ROW_HEIGHT = 60;
 const MAX_RESULTS = 8;
 
 function App() {
@@ -40,8 +51,14 @@ function App() {
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const resizeWindow = useCallback(async (count: number) => {
-    const height = BAR_HEIGHT + Math.min(count, MAX_RESULTS) * ROW_HEIGHT;
+  const resizeWindow = useCallback(async (items: DisplayResult[]) => {
+    let height = BAR_HEIGHT;
+    const count = Math.min(items.length, MAX_RESULTS);
+    for (let i = 0; i < count; i++) {
+      height += items[i].kind === "calc" || items[i].kind === "convert"
+        ? EVAL_ROW_HEIGHT
+        : ROW_HEIGHT;
+    }
     await appWindow.setSize(new LogicalSize(680, height));
   }, []);
 
@@ -92,20 +109,35 @@ function App() {
             }
           }
         } else if (query.length > 0) {
-          const res = await invoke<AppSearchResult[]>("search_apps", {
-            query,
-          });
-          items = res.map((r) => ({
-            id: r.id,
-            name: r.name,
-            detail: r.path,
-            kind: "app",
-          }));
+          const [evalResult, appResults] = await Promise.all([
+            invoke<EvalResult | null>("evaluate_input", { query }).catch(() => null),
+            invoke<AppSearchResult[]>("search_apps", { query }).catch(() => []),
+          ]);
+
+          if (evalResult) {
+            const isCalc = evalResult.result_type === "calculator";
+            items.push({
+              id: -1,
+              name: isCalc ? evalResult.expression : evalResult.display,
+              detail: isCalc ? `= ${evalResult.display}` : "",
+              kind: isCalc ? "calc" : "convert",
+              copyValue: String(evalResult.result),
+            });
+          }
+
+          items.push(
+            ...appResults.map((r) => ({
+              id: r.id,
+              name: r.name,
+              detail: r.path,
+              kind: "app" as ResultKind,
+            })),
+          );
         }
 
         setResults(items);
         setSelectedIndex(0);
-        resizeWindow(items.length);
+        resizeWindow(items);
       } catch (e) {
         console.error("Search failed:", e);
       }
@@ -118,7 +150,12 @@ function App() {
 
   const handleAction = useCallback(
     (item: DisplayResult) => {
-      if (item.kind === "app") {
+      if (item.kind === "calc" || item.kind === "convert") {
+        navigator.clipboard
+          .writeText(item.copyValue ?? "")
+          .then(() => hideWindow())
+          .catch(console.error);
+      } else if (item.kind === "app") {
         invoke("launch_app", { id: item.id })
           .then(() => hideWindow())
           .catch(console.error);
@@ -131,7 +168,7 @@ function App() {
           .catch(console.error);
       }
     },
-    [],
+    [hideWindow],
   );
 
   useEffect(() => {
@@ -218,6 +255,53 @@ function App() {
           <div className="mx-3 h-px bg-white/10" />
           {results.map((result, index) => {
             const isSelected = index === selectedIndex;
+            const isEval = result.kind === "calc" || result.kind === "convert";
+
+            if (isEval) {
+              return (
+                <div
+                  key={`${result.kind}-${result.id}`}
+                  className="flex cursor-pointer items-center justify-between px-4 transition-colors duration-75"
+                  style={{
+                    height: EVAL_ROW_HEIGHT,
+                    background: isSelected
+                      ? "rgba(255,255,255,0.08)"
+                      : "rgba(99, 102, 241, 0.06)",
+                    borderLeft: isSelected
+                      ? "2px solid #6366f1"
+                      : "2px solid transparent",
+                    borderRadius:
+                      index === results.length - 1
+                        ? "0 0 16px 16px"
+                        : undefined,
+                  }}
+                  onClick={() => handleAction(result)}
+                  onMouseEnter={() => setSelectedIndex(index)}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-lg shrink-0">
+                      {result.kind === "calc" ? "🔢" : "📐"}
+                    </span>
+                    <div className="min-w-0 overflow-hidden">
+                      <div className="truncate text-sm text-gray-300">
+                        {result.name}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0 ml-3">
+                    <span className="text-xl font-bold text-white">
+                      {result.kind === "calc" ? result.detail.replace("= ", "") : result.copyValue}
+                    </span>
+                    {isSelected && (
+                      <span className="text-xs text-gray-500">
+                        &#x23CE; Copy
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <div
                 key={`${result.kind}-${result.id}`}

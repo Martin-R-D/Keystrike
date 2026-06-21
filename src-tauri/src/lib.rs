@@ -1,3 +1,5 @@
+mod calculator;
+mod converter;
 mod indexer;
 mod searcher;
 
@@ -12,6 +14,16 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 
 use indexer::AppEntry;
 use searcher::SearchResult;
+
+#[derive(Debug, Clone, Serialize)]
+struct EvalResult {
+    result_type: String,
+    expression: String,
+    result: f64,
+    display: String,
+    input_unit: Option<String>,
+    output_unit: Option<String>,
+}
 
 struct AppState {
     apps: Mutex<Vec<AppEntry>>,
@@ -147,6 +159,33 @@ fn close_process(name: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn evaluate_input(query: String) -> Option<EvalResult> {
+    if let Some(calc) = calculator::evaluate(&query) {
+        return Some(EvalResult {
+            result_type: "calculator".to_string(),
+            expression: calc.expression,
+            result: calc.result,
+            display: calc.display,
+            input_unit: None,
+            output_unit: None,
+        });
+    }
+
+    if let Some(conv) = converter::convert(&query) {
+        return Some(EvalResult {
+            result_type: "converter".to_string(),
+            expression: conv.display.clone(),
+            result: conv.output_value,
+            display: conv.display,
+            input_unit: Some(conv.input_unit),
+            output_unit: Some(conv.output_unit),
+        });
+    }
+
+    None
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_state = AppState {
@@ -178,6 +217,7 @@ pub fn run() {
             reindex_apps,
             search_running_apps,
             close_process,
+            evaluate_input,
         ])
         .setup(|app| {
             let alt_space = Shortcut::new(Some(Modifiers::ALT), Code::Space);
