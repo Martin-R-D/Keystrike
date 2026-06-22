@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
-import { LogicalSize } from "@tauri-apps/api/dpi";
+import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 
 const appWindow = getCurrentWebviewWindow();
 
@@ -16,6 +16,7 @@ interface DisplayResult {
   copyValue?: string;
   icon?: string;
   url?: string;
+  tag?: string;
 }
 
 interface AppSearchResult {
@@ -46,42 +47,110 @@ interface WebSearchResult {
   icon: string;
 }
 
+interface IndexStatus {
+  ready: boolean;
+  count: number;
+}
+
 const COMMANDS = [{ name: "close", description: "Close a running application" }];
 
 const BAR_HEIGHT = 72;
-const ROW_HEIGHT = 52;
-const EVAL_ROW_HEIGHT = 60;
-const MAX_RESULTS = 8;
+const ROW_HEIGHT = 48;
+const EVAL_ROW_HEIGHT = 56;
+const HINT_ROW_HEIGHT = 36;
+const MAX_VISIBLE = 8;
+const MAX_HEIGHT = BAR_HEIGHT + MAX_VISIBLE * ROW_HEIGHT;
+
+function rowHeight(kind: ResultKind): number {
+  if (kind === "calc" || kind === "convert") return EVAL_ROW_HEIGHT;
+  if (kind === "prefix-hint") return HINT_ROW_HEIGHT;
+  return ROW_HEIGHT;
+}
 
 function App() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<DisplayResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [indexReady, setIndexReady] = useState(false);
+  const [indexCount, setIndexCount] = useState(0);
+  const [toast, setToast] = useState<string | null>(null);
+  const [windowVisible, setWindowVisible] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const poll = setInterval(async () => {
+      try {
+        const status = await invoke<IndexStatus>("get_index_status");
+        if (status.ready) {
+          setIndexReady(true);
+          setIndexCount(status.count);
+          clearInterval(poll);
+        }
+      } catch {}
+    }, 200);
+    return () => clearInterval(poll);
+  }, []);
+
+  const positionRestored = useRef(false);
+
+  useEffect(() => {
+    const restorePosition = async () => {
+      try {
+        const saved = await invoke<{ x: number; y: number } | null>("load_position");
+        if (saved) {
+          await appWindow.setPosition(new LogicalPosition(saved.x, saved.y));
+        }
+      } catch {}
+      positionRestored.current = true;
+    };
+    restorePosition();
+  }, []);
+
+  useEffect(() => {
+    const onFocus = () => {
+      setWindowVisible(true);
+      inputRef.current?.focus();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
 
   const resizeWindow = useCallback(async (items: DisplayResult[]) => {
-    let height = BAR_HEIGHT;
-    const count = Math.min(items.length, MAX_RESULTS);
-    for (let i = 0; i < count; i++) {
-      const k = items[i].kind;
-      if (k === "calc" || k === "convert") height += EVAL_ROW_HEIGHT;
-      else if (k === "prefix-hint") height += 40;
-      else height += ROW_HEIGHT;
+    let h = BAR_HEIGHT;
+    for (let i = 0; i < Math.min(items.length, MAX_VISIBLE); i++) {
+      h += rowHeight(items[i].kind);
     }
-    await appWindow.setSize(new LogicalSize(680, height));
+    h = Math.min(h, MAX_HEIGHT);
+    await appWindow.setSize(new LogicalSize(680, h));
   }, []);
 
   const hideWindow = useCallback(async () => {
+    try {
+      const pos = await appWindow.outerPosition();
+      const scale = await appWindow.scaleFactor();
+      await invoke("save_position", {
+        x: pos.x / scale,
+        y: pos.y / scale,
+      });
+    } catch {}
     setQuery("");
     setResults([]);
     setSelectedIndex(0);
+    setWindowVisible(false);
     await appWindow.setSize(new LogicalSize(680, BAR_HEIGHT));
     await appWindow.hide();
   }, []);
 
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  }, []);
+
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!indexReady && !query.startsWith("/")) return;
 
     debounceRef.current = setTimeout(async () => {
       try {
@@ -99,6 +168,7 @@ function App() {
               name: `/${c.name}`,
               detail: c.description,
               kind: "command",
+              tag: "Command",
             }));
           } else {
             const cmd = afterSlash.slice(0, spaceIdx).toLowerCase();
@@ -115,6 +185,7 @@ function App() {
                 detail: p.exe,
                 kind: "process",
                 meta: p.exe,
+                tag: "Process",
               }));
             }
           }
@@ -134,6 +205,7 @@ function App() {
               detail: isCalc ? `= ${evalResult.display}` : "",
               kind: isCalc ? "calc" : "convert",
               copyValue: String(evalResult.result),
+              tag: isCalc ? "Calculator" : "Converter",
             });
           }
 
@@ -148,6 +220,7 @@ function App() {
               kind: "websearch",
               icon: webResult.icon,
               url: webResult.full_url,
+              tag: "Web",
             });
           }
 
@@ -164,13 +237,15 @@ function App() {
             }
           }
 
-          const appItems = appResults.map((r) => ({
-            id: r.id,
-            name: r.name,
-            detail: r.path,
-            kind: "app" as ResultKind,
-          }));
-          items.push(...appItems);
+          items.push(
+            ...appResults.map((r) => ({
+              id: r.id,
+              name: r.name,
+              detail: r.path,
+              kind: "app" as ResultKind,
+              tag: "App",
+            })),
+          );
 
           if (!webResult && prefixHints.length === 0 && query.trim().length > 0) {
             const fallback = await invoke<WebSearchResult>("get_google_fallback", { query }).catch(() => null);
@@ -182,6 +257,7 @@ function App() {
                 kind: "websearch",
                 icon: fallback.icon,
                 url: fallback.full_url,
+                tag: "Web",
               });
             }
           }
@@ -193,19 +269,22 @@ function App() {
       } catch (e) {
         console.error("Search failed:", e);
       }
-    }, 50);
+    }, 30);
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, resizeWindow]);
+  }, [query, resizeWindow, indexReady]);
 
   const handleAction = useCallback(
     (item: DisplayResult) => {
       if (item.kind === "calc" || item.kind === "convert") {
         navigator.clipboard
           .writeText(item.copyValue ?? "")
-          .then(() => hideWindow())
+          .then(() => {
+            showToast("Copied to clipboard");
+            hideWindow();
+          })
           .catch(console.error);
       } else if (item.kind === "prefix-hint") {
         setQuery(item.name + " ");
@@ -215,9 +294,11 @@ function App() {
           .then(() => hideWindow())
           .catch(console.error);
       } else if (item.kind === "app") {
-        invoke("launch_app", { id: item.id })
+        invoke<string>("launch_app", { id: item.id })
           .then(() => hideWindow())
-          .catch(console.error);
+          .catch((err) => {
+            showToast(String(err));
+          });
       } else if (item.kind === "command") {
         setQuery(item.name + " ");
         inputRef.current?.focus();
@@ -227,7 +308,7 @@ function App() {
           .catch(console.error);
       }
     },
-    [hideWindow],
+    [hideWindow, showToast],
   );
 
   useEffect(() => {
@@ -237,12 +318,18 @@ function App() {
           hideWindow();
           break;
         case "ArrowDown":
-          e.preventDefault();
-          setSelectedIndex((i) => Math.min(i + 1, results.length - 1));
+        case "Tab":
+          if (e.key === "Tab" && e.shiftKey) {
+            e.preventDefault();
+            setSelectedIndex((i) => (i <= 0 ? results.length - 1 : i - 1));
+          } else {
+            e.preventDefault();
+            setSelectedIndex((i) => (i >= results.length - 1 ? 0 : i + 1));
+          }
           break;
         case "ArrowUp":
           e.preventDefault();
-          setSelectedIndex((i) => Math.max(i - 1, 0));
+          setSelectedIndex((i) => (i <= 0 ? results.length - 1 : i - 1));
           break;
         case "Enter":
           if (results.length > 0) {
@@ -254,230 +341,226 @@ function App() {
       }
     };
 
-    const handleFocus = () => inputRef.current?.focus();
-
     document.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("focus", handleFocus);
-
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("focus", handleFocus);
-    };
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, [results, selectedIndex, hideWindow, handleAction]);
+
+  useEffect(() => {
+    if (!listRef.current) return;
+    const el = listRef.current.children[selectedIndex] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex]);
 
   const hasResults = results.length > 0;
 
   return (
-    <div className="flex w-screen flex-col">
+    <div
+      className="flex w-screen flex-col"
+      style={{
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 16,
+      }}
+    >
+      {/* Search bar */}
       <div
+        data-tauri-drag-region
         className="flex shrink-0 items-center gap-3 px-5"
         style={{
           height: BAR_HEIGHT,
-          background: "rgba(24, 24, 32, 0.92)",
-          borderRadius: hasResults ? "16px 16px 0 0" : "16px",
+          background: "rgba(24, 24, 32, 0.95)",
+          borderRadius: hasResults ? "15px 15px 0 0" : 15,
           backdropFilter: "blur(24px)",
           WebkitBackdropFilter: "blur(24px)",
           boxShadow: hasResults ? "none" : "0 8px 32px rgba(0, 0, 0, 0.4)",
         }}
       >
-        <svg
-          className="h-5 w-5 shrink-0 text-gray-400"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          strokeWidth={2}
-        >
-          <circle cx="11" cy="11" r="8" />
-          <path strokeLinecap="round" d="m21 21-4.35-4.35" />
-        </svg>
+        {!indexReady ? (
+          <svg className="h-5 w-5 shrink-0 text-indigo-400 spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" strokeLinecap="round" />
+          </svg>
+        ) : (
+          <svg
+            className={`h-5 w-5 shrink-0 text-gray-400 ${windowVisible ? "search-icon-pulse" : ""}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            strokeWidth={2}
+          >
+            <circle cx="11" cy="11" r="8" />
+            <path strokeLinecap="round" d="m21 21-4.35-4.35" />
+          </svg>
+        )}
         <input
           ref={inputRef}
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Type to search..."
-          className="flex-1 bg-transparent text-xl text-white outline-none placeholder:text-gray-500"
+          placeholder={indexReady ? "Type to search..." : `Indexing apps...`}
+          disabled={!indexReady}
+          className="flex-1 bg-transparent text-lg text-white outline-none placeholder:text-gray-500 disabled:cursor-wait"
           autoFocus
         />
+        {indexReady && indexCount > 0 && query === "" && (
+          <span className="shrink-0 text-xs text-gray-600">{indexCount} apps</span>
+        )}
       </div>
 
+      {/* Results */}
       {hasResults && (
         <div
           style={{
-            background: "rgba(24, 24, 32, 0.92)",
-            borderRadius: "0 0 16px 16px",
+            background: "rgba(24, 24, 32, 0.95)",
+            borderRadius: "0 0 15px 15px",
             backdropFilter: "blur(24px)",
             WebkitBackdropFilter: "blur(24px)",
             boxShadow: "0 8px 32px rgba(0, 0, 0, 0.4)",
+            maxHeight: MAX_HEIGHT - BAR_HEIGHT,
+            overflowY: "auto",
           }}
         >
           <div className="mx-3 h-px bg-white/10" />
-          {results.map((result, index) => {
-            const isSelected = index === selectedIndex;
-            const isEval = result.kind === "calc" || result.kind === "convert";
-            const isWebSearch = result.kind === "websearch";
+          <div ref={listRef}>
+            {results.map((result, index) => {
+              const isSelected = index === selectedIndex;
+              const isEval = result.kind === "calc" || result.kind === "convert";
+              const isLast = index === results.length - 1;
+              const radius = isLast ? "0 0 15px 15px" : undefined;
 
-            if (isEval) {
-              return (
-                <div
-                  key={`${result.kind}-${result.id}`}
-                  className="flex cursor-pointer items-center justify-between px-4 transition-colors duration-75"
-                  style={{
-                    height: EVAL_ROW_HEIGHT,
-                    background: isSelected
-                      ? "rgba(255,255,255,0.08)"
-                      : "rgba(99, 102, 241, 0.06)",
-                    borderLeft: isSelected
-                      ? "2px solid #6366f1"
-                      : "2px solid transparent",
-                    borderRadius:
-                      index === results.length - 1
-                        ? "0 0 16px 16px"
-                        : undefined,
-                  }}
-                  onClick={() => handleAction(result)}
-                  onMouseEnter={() => setSelectedIndex(index)}
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="text-lg shrink-0">
-                      {result.kind === "calc" ? "🔢" : "📐"}
-                    </span>
-                    <div className="min-w-0 overflow-hidden">
-                      <div className="truncate text-sm text-gray-300">
-                        {result.name}
+              if (isEval) {
+                return (
+                  <div
+                    key={`${result.kind}-${result.id}`}
+                    className="result-enter flex cursor-pointer items-center justify-between px-4"
+                    style={{
+                      animationDelay: `${index * 20}ms`,
+                      height: EVAL_ROW_HEIGHT,
+                      background: isSelected ? "rgba(99, 102, 241, 0.12)" : "rgba(99, 102, 241, 0.04)",
+                      borderLeft: isSelected ? "2px solid #6366f1" : "2px solid transparent",
+                      borderRadius: radius,
+                      transition: "background 100ms ease",
+                    }}
+                    onClick={() => handleAction(result)}
+                    onMouseEnter={() => setSelectedIndex(index)}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-base shrink-0 opacity-70">
+                        {result.kind === "calc" ? "=" : "📐"}
+                      </span>
+                      <div className="min-w-0 overflow-hidden">
+                        <div className="truncate text-sm text-gray-300">
+                          {result.name}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0 ml-3">
-                    <span className="text-xl font-bold text-white">
-                      {result.kind === "calc" ? result.detail.replace("= ", "") : result.copyValue}
-                    </span>
-                    {isSelected && (
-                      <span className="text-xs text-gray-500">
-                        &#x23CE; Copy
+                    <div className="flex items-center gap-3 shrink-0 ml-3">
+                      <span className="text-lg font-semibold text-white">
+                        {result.kind === "calc" ? result.detail.replace("= ", "") : result.copyValue}
                       </span>
-                    )}
+                      {isSelected && (
+                        <span className="text-[10px] text-gray-500 whitespace-nowrap">
+                          &#x23CE; Copy
+                        </span>
+                      )}
+                      {!isSelected && result.tag && (
+                        <span className="text-[10px] text-gray-600 whitespace-nowrap">{result.tag}</span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            }
+                );
+              }
 
-            if (isWebSearch) {
+              if (result.kind === "prefix-hint") {
+                return (
+                  <div
+                    key={`${result.kind}-${result.id}`}
+                    className="result-enter flex cursor-pointer items-center px-4"
+                    style={{
+                      animationDelay: `${index * 20}ms`,
+                      height: HINT_ROW_HEIGHT,
+                      background: isSelected ? "rgba(255,255,255,0.05)" : "transparent",
+                      borderLeft: isSelected ? "2px solid #6366f1" : "2px solid transparent",
+                      borderRadius: radius,
+                      transition: "background 100ms ease",
+                    }}
+                    onClick={() => handleAction(result)}
+                    onMouseEnter={() => setSelectedIndex(index)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs">{result.icon}</span>
+                      <span className="text-[11px] text-gray-500">
+                        Type{" "}
+                        <span className="rounded bg-white/10 px-1 py-0.5 font-mono text-gray-300">
+                          {result.name}
+                        </span>{" "}
+                        to search {result.detail}
+                      </span>
+                    </div>
+                  </div>
+                );
+              }
+
               return (
                 <div
                   key={`${result.kind}-${result.id}`}
-                  className="flex cursor-pointer items-center justify-between px-4 transition-colors duration-75"
+                  className="result-enter flex cursor-pointer items-center justify-between px-4"
                   style={{
+                    animationDelay: `${index * 20}ms`,
                     height: ROW_HEIGHT,
-                    background: isSelected
-                      ? "rgba(255,255,255,0.08)"
-                      : "transparent",
-                    borderLeft: isSelected
-                      ? "2px solid #6366f1"
-                      : "2px solid transparent",
-                    borderRadius:
-                      index === results.length - 1
-                        ? "0 0 16px 16px"
-                        : undefined,
+                    background: isSelected ? "rgba(255,255,255,0.07)" : "transparent",
+                    borderLeft: isSelected ? "2px solid #6366f1" : "2px solid transparent",
+                    borderRadius: radius,
+                    transition: "background 100ms ease",
                   }}
                   onClick={() => handleAction(result)}
                   onMouseEnter={() => setSelectedIndex(index)}
                 >
                   <div className="min-w-0 overflow-hidden">
                     <div className="truncate text-sm font-medium text-white">
-                      <span className="mr-2">{result.icon}</span>
+                      {result.kind === "process" && (
+                        <span className="mr-2 text-red-400 text-xs">&#x2715;</span>
+                      )}
+                      {result.kind === "command" && (
+                        <span className="mr-2 text-indigo-400">/</span>
+                      )}
+                      {result.kind === "websearch" && (
+                        <span className="mr-2">{result.icon}</span>
+                      )}
                       {result.name}
                     </div>
                     <div className="truncate text-xs text-gray-500">
                       {result.detail}
                     </div>
                   </div>
-                  {isSelected && (
-                    <span className="ml-3 shrink-0 text-xs text-gray-500">
-                      &#x23CE; Open
-                    </span>
-                  )}
-                </div>
-              );
-            }
-
-            if (result.kind === "prefix-hint") {
-              return (
-                <div
-                  key={`${result.kind}-${result.id}`}
-                  className="flex cursor-pointer items-center justify-between px-4 transition-colors duration-75"
-                  style={{
-                    height: 40,
-                    background: isSelected
-                      ? "rgba(255,255,255,0.06)"
-                      : "transparent",
-                    borderLeft: isSelected
-                      ? "2px solid #6366f1"
-                      : "2px solid transparent",
-                    borderRadius:
-                      index === results.length - 1
-                        ? "0 0 16px 16px"
-                        : undefined,
-                  }}
-                  onClick={() => handleAction(result)}
-                  onMouseEnter={() => setSelectedIndex(index)}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm">{result.icon}</span>
-                    <span className="text-xs text-gray-500">
-                      Type{" "}
-                      <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-gray-300">
-                        {result.name}
-                      </span>{" "}
-                      to search {result.detail}
-                    </span>
+                  <div className="flex items-center gap-2 shrink-0 ml-3">
+                    {isSelected && (
+                      <span className="text-[10px] text-gray-500 whitespace-nowrap">
+                        {result.kind === "websearch" ? "⏎ Open" : "⏎"}
+                      </span>
+                    )}
+                    {!isSelected && result.tag && (
+                      <span className="text-[10px] text-gray-600 whitespace-nowrap">{result.tag}</span>
+                    )}
                   </div>
                 </div>
               );
-            }
+            })}
+          </div>
+        </div>
+      )}
 
-            return (
-              <div
-                key={`${result.kind}-${result.id}`}
-                className="flex cursor-pointer items-center justify-between px-4 transition-colors duration-75"
-                style={{
-                  height: ROW_HEIGHT,
-                  background: isSelected
-                    ? "rgba(255,255,255,0.08)"
-                    : "transparent",
-                  borderLeft: isSelected
-                    ? "2px solid #6366f1"
-                    : "2px solid transparent",
-                  borderRadius:
-                    index === results.length - 1
-                      ? "0 0 16px 16px"
-                      : undefined,
-                }}
-                onClick={() => handleAction(result)}
-                onMouseEnter={() => setSelectedIndex(index)}
-              >
-                <div className="min-w-0 overflow-hidden">
-                  <div className="truncate text-sm font-medium text-white">
-                    {result.kind === "process" && (
-                      <span className="mr-2 text-red-400">&#x2715;</span>
-                    )}
-                    {result.kind === "command" && (
-                      <span className="mr-2 text-blue-400">/</span>
-                    )}
-                    {result.name}
-                  </div>
-                  <div className="truncate text-xs text-gray-500">
-                    {result.detail}
-                  </div>
-                </div>
-                {isSelected && (
-                  <span className="ml-3 shrink-0 text-xs text-gray-500">
-                    &#x23CE;
-                  </span>
-                )}
-              </div>
-            );
-          })}
+      {/* Toast */}
+      {toast && (
+        <div
+          className="fixed left-1/2 -translate-x-1/2 rounded-lg px-4 py-2 text-xs font-medium shadow-lg"
+          style={{
+            bottom: 12,
+            background: toast.startsWith("Failed") ? "rgba(239, 68, 68, 0.9)" : "rgba(34, 197, 94, 0.9)",
+            color: "white",
+            backdropFilter: "blur(8px)",
+            zIndex: 50,
+          }}
+        >
+          {toast}
         </div>
       )}
     </div>

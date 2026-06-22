@@ -4,7 +4,10 @@ mod indexer;
 mod searcher;
 mod web_search;
 
+use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use fuzzy_matcher::skim::SkimMatcherV2;
@@ -16,6 +19,67 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 use indexer::AppEntry;
 use searcher::SearchResult;
 
+struct AppState {
+    apps: Mutex<Vec<AppEntry>>,
+    searcher: searcher::Searcher,
+    ready: Mutex<bool>,
+}
+
+fn usage_path() -> PathBuf {
+    let home = std::env::var("USERPROFILE").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join(".keystrike")
+}
+
+fn load_usage() -> HashMap<String, u64> {
+    let path = usage_path().join("app_usage.json");
+    fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn save_usage(apps: &[AppEntry]) {
+    let dir = usage_path();
+    let _ = fs::create_dir_all(&dir);
+    let map: HashMap<String, u64> = apps
+        .iter()
+        .filter(|a| a.use_count > 0)
+        .map(|a| (a.launch_path.clone(), a.use_count))
+        .collect();
+    if let Ok(json) = serde_json::to_string_pretty(&map) {
+        let _ = fs::write(dir.join("app_usage.json"), json);
+    }
+}
+
+fn apply_usage(apps: &mut [AppEntry], usage: &HashMap<String, u64>) {
+    for app in apps.iter_mut() {
+        if let Some(&count) = usage.get(&app.launch_path) {
+            app.use_count = count;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+struct WindowPosition {
+    x: f64,
+    y: f64,
+}
+
+fn load_window_position() -> Option<WindowPosition> {
+    let path = usage_path().join("window_position.json");
+    fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+}
+
+fn save_window_position(pos: &WindowPosition) {
+    let dir = usage_path();
+    let _ = fs::create_dir_all(&dir);
+    if let Ok(json) = serde_json::to_string(pos) {
+        let _ = fs::write(dir.join("window_position.json"), json);
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct EvalResult {
     result_type: String,
@@ -26,8 +90,23 @@ struct EvalResult {
     output_unit: Option<String>,
 }
 
-struct AppState {
-    apps: Mutex<Vec<AppEntry>>,
+#[derive(Debug, Clone, Serialize)]
+struct IndexStatus {
+    ready: bool,
+    count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ProcessInfo {
+    name: String,
+    exe: String,
+}
+
+#[tauri::command]
+fn get_index_status(state: State<'_, AppState>) -> IndexStatus {
+    let ready = *state.ready.lock().unwrap();
+    let count = state.apps.lock().unwrap().len();
+    IndexStatus { ready, count }
 }
 
 #[tauri::command]
@@ -36,12 +115,12 @@ fn search_apps(query: String, state: State<'_, AppState>) -> Vec<SearchResult> {
     if query.is_empty() {
         searcher::most_used(&apps, 8)
     } else {
-        searcher::search(&query, &apps, 8)
+        state.searcher.search(&query, &apps, 8)
     }
 }
 
 #[tauri::command]
-fn launch_app(id: u64, state: State<'_, AppState>) -> Result<(), String> {
+fn launch_app(id: u64, state: State<'_, AppState>) -> Result<String, String> {
     let mut apps = state.apps.lock().unwrap();
     let entry = apps
         .iter_mut()
@@ -49,8 +128,10 @@ fn launch_app(id: u64, state: State<'_, AppState>) -> Result<(), String> {
         .ok_or("App not found")?;
 
     let launch_path = entry.launch_path.clone();
+    let name = entry.name.clone();
     entry.use_count += 1;
 
+    save_usage(&apps);
     drop(apps);
 
     eprintln!("[keystrike] Launching: {}", launch_path);
@@ -58,23 +139,19 @@ fn launch_app(id: u64, state: State<'_, AppState>) -> Result<(), String> {
     std::process::Command::new("explorer")
         .arg(&launch_path)
         .spawn()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Failed to launch {}: {}", name, e))?;
 
-    Ok(())
+    Ok(name)
 }
 
 #[tauri::command]
 fn reindex_apps(state: State<'_, AppState>) -> usize {
-    let new_apps = indexer::index_apps();
+    let usage = load_usage();
+    let mut new_apps = indexer::index_apps();
+    apply_usage(&mut new_apps, &usage);
     let count = new_apps.len();
     *state.apps.lock().unwrap() = new_apps;
     count
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct ProcessInfo {
-    name: String,
-    exe: String,
 }
 
 #[tauri::command]
@@ -181,6 +258,16 @@ fn open_url(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn save_position(x: f64, y: f64) {
+    save_window_position(&WindowPosition { x, y });
+}
+
+#[tauri::command]
+fn load_position() -> Option<WindowPosition> {
+    load_window_position()
+}
+
+#[tauri::command]
 fn evaluate_input(query: String) -> Option<EvalResult> {
     if let Some(calc) = calculator::evaluate(&query) {
         return Some(EvalResult {
@@ -210,7 +297,9 @@ fn evaluate_input(query: String) -> Option<EvalResult> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_state = AppState {
-        apps: Mutex::new(indexer::index_apps()),
+        apps: Mutex::new(Vec::new()),
+        searcher: searcher::Searcher::new(),
+        ready: Mutex::new(false),
     };
 
     tauri::Builder::default()
@@ -243,10 +332,25 @@ pub fn run() {
             get_google_fallback,
             match_search_providers,
             open_url,
+            get_index_status,
+            save_position,
+            load_position,
         ])
         .setup(|app| {
             let alt_space = Shortcut::new(Some(Modifiers::ALT), Code::Space);
             app.global_shortcut().register(alt_space)?;
+
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let usage = load_usage();
+                let mut apps = indexer::index_apps();
+                apply_usage(&mut apps, &usage);
+
+                let state = handle.state::<AppState>();
+                *state.apps.lock().unwrap() = apps;
+                *state.ready.lock().unwrap() = true;
+            });
+
             Ok(())
         })
         .run(tauri::generate_context!())

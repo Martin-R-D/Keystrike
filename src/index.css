@@ -12,3 +12,29 @@ body,
   width: 100%;
   overflow: hidden;
 }
+
+@keyframes pulse-search {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.search-icon-pulse {
+  animation: pulse-search 1.5s ease-in-out 2;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.result-enter {
+  animation: fade-in 100ms ease-out both;
+}
