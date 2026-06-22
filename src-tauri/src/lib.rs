@@ -2,6 +2,7 @@ mod calculator;
 mod converter;
 mod indexer;
 mod searcher;
+mod web_search;
 
 use std::collections::HashSet;
 use std::sync::Mutex;
@@ -160,6 +161,26 @@ fn close_process(name: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn check_web_search(query: String) -> Option<web_search::WebSearchResult> {
+    web_search::check(&query)
+}
+
+#[tauri::command]
+fn get_google_fallback(query: String) -> web_search::WebSearchResult {
+    web_search::google_fallback(&query)
+}
+
+#[tauri::command]
+fn match_search_providers(query: String) -> Vec<web_search::WebSearchResult> {
+    web_search::match_providers(&query)
+}
+
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    open::that(&url).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn evaluate_input(query: String) -> Option<EvalResult> {
     if let Some(calc) = calculator::evaluate(&query) {
         return Some(EvalResult {
@@ -218,6 +239,10 @@ pub fn run() {
             search_running_apps,
             close_process,
             evaluate_input,
+            check_web_search,
+            get_google_fallback,
+            match_search_providers,
+            open_url,
         ])
         .setup(|app| {
             let alt_space = Shortcut::new(Some(Modifiers::ALT), Code::Space);

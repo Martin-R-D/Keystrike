@@ -5,7 +5,7 @@ import { LogicalSize } from "@tauri-apps/api/dpi";
 
 const appWindow = getCurrentWebviewWindow();
 
-type ResultKind = "app" | "command" | "process" | "calc" | "convert";
+type ResultKind = "app" | "command" | "process" | "calc" | "convert" | "websearch" | "prefix-hint";
 
 interface DisplayResult {
   id: number;
@@ -14,6 +14,8 @@ interface DisplayResult {
   kind: ResultKind;
   meta?: string;
   copyValue?: string;
+  icon?: string;
+  url?: string;
 }
 
 interface AppSearchResult {
@@ -37,6 +39,13 @@ interface EvalResult {
   output_unit: string | null;
 }
 
+interface WebSearchResult {
+  provider_name: string;
+  search_query: string;
+  full_url: string;
+  icon: string;
+}
+
 const COMMANDS = [{ name: "close", description: "Close a running application" }];
 
 const BAR_HEIGHT = 72;
@@ -55,9 +64,10 @@ function App() {
     let height = BAR_HEIGHT;
     const count = Math.min(items.length, MAX_RESULTS);
     for (let i = 0; i < count; i++) {
-      height += items[i].kind === "calc" || items[i].kind === "convert"
-        ? EVAL_ROW_HEIGHT
-        : ROW_HEIGHT;
+      const k = items[i].kind;
+      if (k === "calc" || k === "convert") height += EVAL_ROW_HEIGHT;
+      else if (k === "prefix-hint") height += 40;
+      else height += ROW_HEIGHT;
     }
     await appWindow.setSize(new LogicalSize(680, height));
   }, []);
@@ -109,9 +119,11 @@ function App() {
             }
           }
         } else if (query.length > 0) {
-          const [evalResult, appResults] = await Promise.all([
+          const [evalResult, webResult, appResults, prefixHints] = await Promise.all([
             invoke<EvalResult | null>("evaluate_input", { query }).catch(() => null),
+            invoke<WebSearchResult | null>("check_web_search", { query }).catch(() => null),
             invoke<AppSearchResult[]>("search_apps", { query }).catch(() => []),
+            invoke<WebSearchResult[]>("match_search_providers", { query }).catch(() => []),
           ]);
 
           if (evalResult) {
@@ -125,14 +137,54 @@ function App() {
             });
           }
 
-          items.push(
-            ...appResults.map((r) => ({
-              id: r.id,
-              name: r.name,
-              detail: r.path,
-              kind: "app" as ResultKind,
-            })),
-          );
+          if (webResult) {
+            const label = webResult.search_query
+              ? `Search ${webResult.provider_name} for '${webResult.search_query}'`
+              : `Search ${webResult.provider_name}...`;
+            items.push({
+              id: -2,
+              name: label,
+              detail: webResult.full_url,
+              kind: "websearch",
+              icon: webResult.icon,
+              url: webResult.full_url,
+            });
+          }
+
+          if (!webResult && prefixHints.length > 0) {
+            for (let i = 0; i < Math.min(prefixHints.length, 2); i++) {
+              const h = prefixHints[i];
+              items.push({
+                id: -10 - i,
+                name: h.full_url.trim(),
+                detail: h.provider_name,
+                kind: "prefix-hint",
+                icon: h.icon,
+              });
+            }
+          }
+
+          const appItems = appResults.map((r) => ({
+            id: r.id,
+            name: r.name,
+            detail: r.path,
+            kind: "app" as ResultKind,
+          }));
+          items.push(...appItems);
+
+          if (!webResult && prefixHints.length === 0 && query.trim().length > 0) {
+            const fallback = await invoke<WebSearchResult>("get_google_fallback", { query }).catch(() => null);
+            if (fallback) {
+              items.push({
+                id: -3,
+                name: `Search Google for '${fallback.search_query}'`,
+                detail: fallback.full_url,
+                kind: "websearch",
+                icon: fallback.icon,
+                url: fallback.full_url,
+              });
+            }
+          }
         }
 
         setResults(items);
@@ -153,6 +205,13 @@ function App() {
       if (item.kind === "calc" || item.kind === "convert") {
         navigator.clipboard
           .writeText(item.copyValue ?? "")
+          .then(() => hideWindow())
+          .catch(console.error);
+      } else if (item.kind === "prefix-hint") {
+        setQuery(item.name + " ");
+        inputRef.current?.focus();
+      } else if (item.kind === "websearch") {
+        invoke("open_url", { url: item.url })
           .then(() => hideWindow())
           .catch(console.error);
       } else if (item.kind === "app") {
@@ -256,6 +315,7 @@ function App() {
           {results.map((result, index) => {
             const isSelected = index === selectedIndex;
             const isEval = result.kind === "calc" || result.kind === "convert";
+            const isWebSearch = result.kind === "websearch";
 
             if (isEval) {
               return (
@@ -297,6 +357,80 @@ function App() {
                         &#x23CE; Copy
                       </span>
                     )}
+                  </div>
+                </div>
+              );
+            }
+
+            if (isWebSearch) {
+              return (
+                <div
+                  key={`${result.kind}-${result.id}`}
+                  className="flex cursor-pointer items-center justify-between px-4 transition-colors duration-75"
+                  style={{
+                    height: ROW_HEIGHT,
+                    background: isSelected
+                      ? "rgba(255,255,255,0.08)"
+                      : "transparent",
+                    borderLeft: isSelected
+                      ? "2px solid #6366f1"
+                      : "2px solid transparent",
+                    borderRadius:
+                      index === results.length - 1
+                        ? "0 0 16px 16px"
+                        : undefined,
+                  }}
+                  onClick={() => handleAction(result)}
+                  onMouseEnter={() => setSelectedIndex(index)}
+                >
+                  <div className="min-w-0 overflow-hidden">
+                    <div className="truncate text-sm font-medium text-white">
+                      <span className="mr-2">{result.icon}</span>
+                      {result.name}
+                    </div>
+                    <div className="truncate text-xs text-gray-500">
+                      {result.detail}
+                    </div>
+                  </div>
+                  {isSelected && (
+                    <span className="ml-3 shrink-0 text-xs text-gray-500">
+                      &#x23CE; Open
+                    </span>
+                  )}
+                </div>
+              );
+            }
+
+            if (result.kind === "prefix-hint") {
+              return (
+                <div
+                  key={`${result.kind}-${result.id}`}
+                  className="flex cursor-pointer items-center justify-between px-4 transition-colors duration-75"
+                  style={{
+                    height: 40,
+                    background: isSelected
+                      ? "rgba(255,255,255,0.06)"
+                      : "transparent",
+                    borderLeft: isSelected
+                      ? "2px solid #6366f1"
+                      : "2px solid transparent",
+                    borderRadius:
+                      index === results.length - 1
+                        ? "0 0 16px 16px"
+                        : undefined,
+                  }}
+                  onClick={() => handleAction(result)}
+                  onMouseEnter={() => setSelectedIndex(index)}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">{result.icon}</span>
+                    <span className="text-xs text-gray-500">
+                      Type{" "}
+                      <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-gray-300">
+                        {result.name}
+                      </span>{" "}
+                      to search {result.detail}
+                    </span>
                   </div>
                 </div>
               );
