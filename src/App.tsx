@@ -75,6 +75,7 @@ function App() {
   const [indexCount, setIndexCount] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
   const [windowVisible, setWindowVisible] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -87,6 +88,15 @@ function App() {
           setIndexReady(true);
           setIndexCount(status.count);
           clearInterval(poll);
+          try {
+            const first = await invoke<boolean>("is_first_launch");
+            if (first) {
+              setShowWelcome(true);
+              await appWindow.setSize(new LogicalSize(680, 220));
+              await appWindow.show();
+              await appWindow.setFocus();
+            }
+          } catch {}
         }
       } catch {}
     }, 200);
@@ -544,6 +554,38 @@ function App() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Welcome overlay */}
+      {showWelcome && (
+        <div
+          className="absolute inset-0 z-40 flex flex-col items-center justify-center"
+          style={{
+            background: "rgba(24, 24, 32, 0.98)",
+            borderRadius: 15,
+          }}
+        >
+          <div className="text-center px-8">
+            <div className="text-2xl font-bold text-white mb-2">Keystrike is ready!</div>
+            <div className="text-sm text-gray-400 mb-1">
+              {indexCount} apps indexed
+            </div>
+            <div className="text-sm text-gray-400 mb-5">
+              Press <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-gray-200">Alt+Space</span> anytime to launch.
+            </div>
+            <button
+              className="rounded-lg bg-indigo-500 px-5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-400"
+              onClick={async () => {
+                invoke("mark_first_launch_done").catch(console.error);
+                setShowWelcome(false);
+                await appWindow.setSize(new LogicalSize(680, BAR_HEIGHT));
+                inputRef.current?.focus();
+              }}
+            >
+              Got it
+            </button>
           </div>
         </div>
       )}

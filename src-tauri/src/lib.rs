@@ -13,7 +13,10 @@ use std::sync::Mutex;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use serde::Serialize;
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, State};
+use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 use indexer::AppEntry;
@@ -25,13 +28,13 @@ struct AppState {
     ready: Mutex<bool>,
 }
 
-fn usage_path() -> PathBuf {
+fn data_dir() -> PathBuf {
     let home = std::env::var("USERPROFILE").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(home).join(".keystrike")
 }
 
 fn load_usage() -> HashMap<String, u64> {
-    let path = usage_path().join("app_usage.json");
+    let path = data_dir().join("app_usage.json");
     fs::read_to_string(&path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
@@ -39,7 +42,7 @@ fn load_usage() -> HashMap<String, u64> {
 }
 
 fn save_usage(apps: &[AppEntry]) {
-    let dir = usage_path();
+    let dir = data_dir();
     let _ = fs::create_dir_all(&dir);
     let map: HashMap<String, u64> = apps
         .iter()
@@ -66,14 +69,14 @@ struct WindowPosition {
 }
 
 fn load_window_position() -> Option<WindowPosition> {
-    let path = usage_path().join("window_position.json");
+    let path = data_dir().join("window_position.json");
     fs::read_to_string(&path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
 }
 
 fn save_window_position(pos: &WindowPosition) {
-    let dir = usage_path();
+    let dir = data_dir();
     let _ = fs::create_dir_all(&dir);
     if let Ok(json) = serde_json::to_string(pos) {
         let _ = fs::write(dir.join("window_position.json"), json);
@@ -294,6 +297,36 @@ fn evaluate_input(query: String) -> Option<EvalResult> {
     None
 }
 
+#[tauri::command]
+fn is_first_launch() -> bool {
+    !data_dir().join("config.json").exists()
+}
+
+#[tauri::command]
+fn mark_first_launch_done() {
+    let dir = data_dir();
+    let _ = fs::create_dir_all(&dir);
+    let _ = fs::write(dir.join("config.json"), r#"{"first_launch_done":true}"#);
+}
+
+fn show_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn toggle_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+        } else {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_state = AppState {
@@ -304,19 +337,19 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(app_state)
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_window(app);
+        }))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
                     let alt_space = Shortcut::new(Some(Modifiers::ALT), Code::Space);
                     if event.state == ShortcutState::Pressed && *shortcut == alt_space {
-                        if let Some(window) = app.get_webview_window("main") {
-                            if window.is_visible().unwrap_or(false) {
-                                let _ = window.hide();
-                            } else {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
-                        }
+                        toggle_window(app);
                     }
                 })
                 .build(),
@@ -335,11 +368,97 @@ pub fn run() {
             get_index_status,
             save_position,
             load_position,
+            is_first_launch,
+            mark_first_launch_done,
         ])
         .setup(|app| {
+            // Register hotkey
             let alt_space = Shortcut::new(Some(Modifiers::ALT), Code::Space);
             app.global_shortcut().register(alt_space)?;
 
+            // Build tray menu
+            let show_item = MenuItem::with_id(
+                app, "show", "Show Keystrike   (Alt+Space)", true, None::<&str>,
+            )?;
+            let reindex_item = MenuItem::with_id(
+                app, "reindex", "Reindex Apps", true, None::<&str>,
+            )?;
+            let sep = PredefinedMenuItem::separator(app)?;
+
+            let mgr = app.autolaunch();
+            if !mgr.is_enabled().unwrap_or(false) {
+                let _ = mgr.enable();
+            }
+            let autostart_item = CheckMenuItem::with_id(
+                app, "autostart", "Start with Windows", true, true, None::<&str>,
+            )?;
+            let autostart_ref = autostart_item.clone();
+
+            let quit_item = MenuItem::with_id(
+                app, "quit", "Quit Keystrike", true, None::<&str>,
+            )?;
+
+            let menu = Menu::with_items(
+                app,
+                &[&show_item, &reindex_item, &sep, &autostart_item, &quit_item],
+            )?;
+
+            let icon = app
+                .default_window_icon()
+                .cloned()
+                .expect("no default icon set in tauri.conf.json");
+
+            TrayIconBuilder::new()
+                .icon(icon)
+                .tooltip("Keystrike")
+                .menu(&menu)
+                .on_menu_event(move |app, event| {
+                    match event.id().as_ref() {
+                        "show" => {
+                            show_window(app);
+                        }
+                        "reindex" => {
+                            let handle = app.clone();
+                            std::thread::spawn(move || {
+                                let usage = load_usage();
+                                let mut new_apps = indexer::index_apps();
+                                apply_usage(&mut new_apps, &usage);
+                                let count = new_apps.len();
+                                let state = handle.state::<AppState>();
+                                *state.apps.lock().unwrap() = new_apps;
+                                eprintln!("[keystrike] Reindexed: {} apps", count);
+                            });
+                        }
+                        "autostart" => {
+                            let mgr = app.autolaunch();
+                            let currently = mgr.is_enabled().unwrap_or(false);
+                            if currently {
+                                let _ = mgr.disable();
+                                let _ = autostart_ref.set_checked(false);
+                            } else {
+                                let _ = mgr.enable();
+                                let _ = autostart_ref.set_checked(true);
+                            }
+                        }
+                        "quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        toggle_window(tray.app_handle());
+                    }
+                })
+                .build(app)?;
+
+            // Background indexing
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 let usage = load_usage();
