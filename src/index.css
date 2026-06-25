@@ -38,3 +38,20 @@ body,
 .result-enter {
   animation: fade-in 100ms ease-out both;
 }
+
+.settings-gear {
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.settings-gear:hover {
+  color: #d1d5db;
+}
+
+.settings-row {
+  transition: background 100ms ease;
+}
+
+.settings-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}

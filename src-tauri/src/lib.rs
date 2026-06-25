@@ -15,7 +15,7 @@ use fuzzy_matcher::FuzzyMatcher;
 use serde::Serialize;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Manager, State};
+use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
@@ -298,6 +298,34 @@ fn evaluate_input(query: String) -> Option<EvalResult> {
 }
 
 #[tauri::command]
+async fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
+    // If the settings window already exists, just focus it.
+    if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    WebviewWindowBuilder::new(
+        &app,
+        "settings",
+        WebviewUrl::App("index.html?window=settings".into()),
+    )
+    .title("Keystrike Settings")
+    .inner_size(700.0, 500.0)
+    .min_inner_size(600.0, 400.0)
+    .resizable(true)
+    .decorations(true)
+    .center()
+    .skip_taskbar(false)
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
 fn is_first_launch() -> bool {
     !data_dir().join("config.json").exists()
 }
@@ -370,6 +398,7 @@ pub fn run() {
             load_position,
             is_first_launch,
             mark_first_launch_done,
+            open_settings_window,
         ])
         .setup(|app| {
             // Register hotkey
