@@ -11,7 +11,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use commands::CommandsConfig;
+use commands::{AllCommandsConfig, CustomCommand, CustomCommandInput};
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
@@ -244,58 +244,112 @@ fn close_process(name: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn check_web_search(
-    query: String,
-    commands: State<'_, Arc<Mutex<CommandsConfig>>>,
-) -> Option<web_search::WebSearchResult> {
-    let cfg = commands.lock().unwrap();
-    web_search::check(&query, &cfg.web_search)
-}
-
-#[tauri::command]
 fn get_google_fallback(query: String) -> web_search::WebSearchResult {
     web_search::google_fallback(&query)
 }
 
 #[tauri::command]
-fn match_search_providers(
-    query: String,
-    commands: State<'_, Arc<Mutex<CommandsConfig>>>,
-) -> Vec<web_search::WebSearchResult> {
-    let cfg = commands.lock().unwrap();
-    web_search::match_providers(&query, &cfg.web_search)
+fn get_all_commands(commands: State<'_, Arc<Mutex<AllCommandsConfig>>>) -> AllCommandsConfig {
+    commands.lock().unwrap().clone()
 }
 
 #[tauri::command]
-fn get_commands(commands: State<'_, Arc<Mutex<CommandsConfig>>>) -> CommandsConfig {
-    commands.lock().unwrap().clone()
+fn check_command(
+    query: String,
+    commands: State<'_, Arc<Mutex<AllCommandsConfig>>>,
+) -> Option<commands::CommandResult> {
+    let cfg = commands.lock().unwrap();
+    commands::check_command(&cfg, &query)
+}
+
+#[tauri::command]
+fn match_command_prefixes(
+    query: String,
+    commands: State<'_, Arc<Mutex<AllCommandsConfig>>>,
+) -> Vec<commands::PrefixHint> {
+    let cfg = commands.lock().unwrap();
+    commands::match_prefixes(&cfg, &query)
 }
 
 #[tauri::command]
 fn update_command_keyword(
     command_id: String,
     new_keyword: String,
-    commands: State<'_, Arc<Mutex<CommandsConfig>>>,
+    commands: State<'_, Arc<Mutex<AllCommandsConfig>>>,
 ) -> Result<(), String> {
     let mut cfg = commands.lock().unwrap();
-    let keyword = commands::validate(&cfg, &command_id, &new_keyword)?;
-    commands::apply(&mut cfg, &command_id, keyword);
+    commands::update_builtin_keyword(&mut cfg, &command_id, &new_keyword)?;
     commands::save(&cfg)?;
     Ok(())
 }
 
 #[tauri::command]
 fn reset_commands_to_defaults(
-    commands: State<'_, Arc<Mutex<CommandsConfig>>>,
-) -> CommandsConfig {
-    let defaults = CommandsConfig::defaults();
-    {
-        let mut cfg = commands.lock().unwrap();
-        *cfg = defaults.clone();
-    }
-    commands::delete_file();
-    let _ = commands::save(&defaults);
-    defaults
+    commands: State<'_, Arc<Mutex<AllCommandsConfig>>>,
+) -> AllCommandsConfig {
+    let mut cfg = commands.lock().unwrap();
+    *cfg = commands::reset_builtin(&cfg);
+    let _ = commands::save(&cfg);
+    cfg.clone()
+}
+
+#[tauri::command]
+fn create_custom_command(
+    command: CustomCommandInput,
+    commands: State<'_, Arc<Mutex<AllCommandsConfig>>>,
+) -> Result<CustomCommand, String> {
+    let mut cfg = commands.lock().unwrap();
+    let created = commands::create_custom(&mut cfg, command)?;
+    commands::save(&cfg)?;
+    Ok(created)
+}
+
+#[tauri::command]
+fn update_custom_command(
+    id: String,
+    command: CustomCommandInput,
+    commands: State<'_, Arc<Mutex<AllCommandsConfig>>>,
+) -> Result<CustomCommand, String> {
+    let mut cfg = commands.lock().unwrap();
+    let updated = commands::update_custom(&mut cfg, &id, command)?;
+    commands::save(&cfg)?;
+    Ok(updated)
+}
+
+#[tauri::command]
+fn delete_custom_command(
+    id: String,
+    commands: State<'_, Arc<Mutex<AllCommandsConfig>>>,
+) -> Result<(), String> {
+    let mut cfg = commands.lock().unwrap();
+    commands::delete_custom(&mut cfg, &id);
+    commands::save(&cfg)?;
+    Ok(())
+}
+
+/// Copy a snippet to the clipboard and auto-clear it after 60 seconds, but
+/// only if the clipboard still holds the same text (so we never clobber
+/// something the user copied in the meantime).
+#[tauri::command]
+fn execute_snippet(content: String) -> Result<(), String> {
+    use arboard::Clipboard;
+
+    let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
+    clipboard.set_text(content.clone()).map_err(|e| e.to_string())?;
+    drop(clipboard);
+
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(60));
+        if let Ok(mut cb) = Clipboard::new() {
+            if let Ok(current) = cb.get_text() {
+                if current == content {
+                    let _ = cb.clear();
+                }
+            }
+        }
+    });
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -435,9 +489,7 @@ pub fn run() {
             search_running_apps,
             close_process,
             evaluate_input,
-            check_web_search,
             get_google_fallback,
-            match_search_providers,
             open_url,
             get_index_status,
             save_position,
@@ -445,9 +497,15 @@ pub fn run() {
             is_first_launch,
             mark_first_launch_done,
             open_settings_window,
-            get_commands,
+            get_all_commands,
+            check_command,
+            match_command_prefixes,
             update_command_keyword,
             reset_commands_to_defaults,
+            create_custom_command,
+            update_custom_command,
+            delete_custom_command,
+            execute_snippet,
         ])
         .setup(|app| {
             // Register hotkey

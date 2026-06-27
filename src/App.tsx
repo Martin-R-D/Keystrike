@@ -5,7 +5,7 @@ import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 
 const appWindow = getCurrentWebviewWindow();
 
-type ResultKind = "app" | "command" | "process" | "calc" | "convert" | "websearch" | "prefix-hint";
+type ResultKind = "app" | "command" | "process" | "calc" | "convert" | "websearch" | "prefix-hint" | "snippet";
 
 interface DisplayResult {
   id: number;
@@ -47,6 +47,23 @@ interface WebSearchResult {
   icon: string;
 }
 
+interface CommandResult {
+  id: string;
+  kind: "url" | "snippet";
+  label: string;
+  icon: string;
+  query: string;
+  url: string | null;
+  content: string | null;
+}
+
+interface PrefixHint {
+  keyword: string;
+  label: string;
+  icon: string;
+  kind: string;
+}
+
 interface IndexStatus {
   ready: boolean;
   count: number;
@@ -65,6 +82,30 @@ function rowHeight(kind: ResultKind): number {
   if (kind === "calc" || kind === "convert") return EVAL_ROW_HEIGHT;
   if (kind === "prefix-hint") return HINT_ROW_HEIGHT;
   return ROW_HEIGHT;
+}
+
+function commandResultToItem(c: CommandResult): DisplayResult {
+  if (c.kind === "snippet") {
+    const preview = (c.content ?? "").replace(/\s+/g, " ").slice(0, 50);
+    return {
+      id: -2,
+      name: c.label,
+      detail: preview,
+      kind: "snippet",
+      icon: c.icon,
+      copyValue: c.content ?? "",
+      tag: "Snippet",
+    };
+  }
+  return {
+    id: -2,
+    name: c.query ? `${c.label} – '${c.query}'` : c.label,
+    detail: c.url ?? "",
+    kind: "websearch",
+    icon: c.icon,
+    url: c.url ?? "",
+    tag: "Web",
+  };
 }
 
 function App() {
@@ -121,8 +162,10 @@ function App() {
 
   const loadCloseKeyword = useCallback(async () => {
     try {
-      const cfg = await invoke<{ system: Record<string, string> }>("get_commands");
-      const kw = cfg.system?.close;
+      const cfg = await invoke<{ builtin: Record<string, { keyword: string }> }>(
+        "get_all_commands",
+      );
+      const kw = cfg.builtin?.close?.keyword;
       if (kw) setCloseKeyword(kw);
     } catch {}
   }, []);
@@ -221,22 +264,27 @@ function App() {
             );
           }
         } else if (query.startsWith("/")) {
-          // Slash command discovery menu.
+          // Slash queries: close-command discovery + any slash-prefixed
+          // custom commands. (No app/Google-fallback noise here.)
           const afterSlash = query.slice(1);
-          if (
-            afterSlash.indexOf(" ") === -1 &&
-            ckHasSlash &&
-            ckLower.startsWith(ql)
-          ) {
-            items = [
-              {
-                id: -20,
-                name: ck,
-                detail: "Close a running application",
-                kind: "command",
-                tag: "Command",
-              },
-            ];
+          if (afterSlash.indexOf(" ") === -1 && ckHasSlash && ckLower.startsWith(ql)) {
+            items.push({
+              id: -20,
+              name: ck,
+              detail: "Close a running application",
+              kind: "command",
+              tag: "Command",
+            });
+          }
+          const cmdResult = await invoke<CommandResult | null>("check_command", { query }).catch(() => null);
+          if (cmdResult) {
+            items.push(commandResultToItem(cmdResult));
+          } else {
+            const prefixHints = await invoke<PrefixHint[]>("match_command_prefixes", { query }).catch(() => []);
+            for (let i = 0; i < Math.min(prefixHints.length, 2); i++) {
+              const h = prefixHints[i];
+              items.push({ id: -10 - i, name: h.keyword, detail: h.label, kind: "prefix-hint", icon: h.icon });
+            }
           }
         } else if (query.length > 0) {
           // When the close keyword has no slash and is typed exactly, offer it
@@ -251,13 +299,19 @@ function App() {
             });
           }
 
-          const [evalResult, webResult, appResults, prefixHints] = await Promise.all([
+          const [evalResult, cmdResult, appResults, prefixHints] = await Promise.all([
             invoke<EvalResult | null>("evaluate_input", { query }).catch(() => null),
-            invoke<WebSearchResult | null>("check_web_search", { query }).catch(() => null),
+            invoke<CommandResult | null>("check_command", { query }).catch(() => null),
             invoke<AppSearchResult[]>("search_apps", { query }).catch(() => []),
-            invoke<WebSearchResult[]>("match_search_providers", { query }).catch(() => []),
+            invoke<PrefixHint[]>("match_command_prefixes", { query }).catch(() => []),
           ]);
 
+          // 1. Command prefix match (URL or snippet) is the top result.
+          if (cmdResult) {
+            items.push(commandResultToItem(cmdResult));
+          }
+
+          // 2. Calculator / unit converter.
           if (evalResult) {
             const isCalc = evalResult.result_type === "calculator";
             items.push({
@@ -270,34 +324,21 @@ function App() {
             });
           }
 
-          if (webResult) {
-            const label = webResult.search_query
-              ? `Search ${webResult.provider_name} for '${webResult.search_query}'`
-              : `Search ${webResult.provider_name}...`;
-            items.push({
-              id: -2,
-              name: label,
-              detail: webResult.full_url,
-              kind: "websearch",
-              icon: webResult.icon,
-              url: webResult.full_url,
-              tag: "Web",
-            });
-          }
-
-          if (!webResult && prefixHints.length > 0) {
+          // Partial-keyword hints when nothing matched exactly.
+          if (!cmdResult && prefixHints.length > 0) {
             for (let i = 0; i < Math.min(prefixHints.length, 2); i++) {
               const h = prefixHints[i];
               items.push({
                 id: -10 - i,
-                name: h.full_url.trim(),
-                detail: h.provider_name,
+                name: h.keyword,
+                detail: h.label,
                 kind: "prefix-hint",
                 icon: h.icon,
               });
             }
           }
 
+          // 3. App fuzzy search (always shown below command matches).
           items.push(
             ...appResults.map((r) => ({
               id: r.id,
@@ -308,7 +349,8 @@ function App() {
             })),
           );
 
-          if (!webResult && prefixHints.length === 0 && query.trim().length > 0) {
+          // 4. Google fallback when no command matched.
+          if (!cmdResult && prefixHints.length === 0 && query.trim().length > 0) {
             const fallback = await invoke<WebSearchResult>("get_google_fallback", { query }).catch(() => null);
             if (fallback) {
               items.push({
@@ -353,6 +395,13 @@ function App() {
       } else if (item.kind === "websearch") {
         invoke("open_url", { url: item.url })
           .then(() => hideWindow())
+          .catch(console.error);
+      } else if (item.kind === "snippet") {
+        invoke("execute_snippet", { content: item.copyValue ?? "" })
+          .then(() => {
+            showToast("Copied to clipboard (clears in 1 min)");
+            setTimeout(() => hideWindow(), 1400);
+          })
           .catch(console.error);
       } else if (item.kind === "app") {
         invoke<string>("launch_app", { id: item.id })
@@ -578,7 +627,7 @@ function App() {
                         <span className="rounded bg-white/10 px-1 py-0.5 font-mono text-gray-300">
                           {result.name}
                         </span>{" "}
-                        to search {result.detail}
+                        &middot; {result.detail}
                       </span>
                     </div>
                   </div>
@@ -608,7 +657,7 @@ function App() {
                       {result.kind === "command" && (
                         <span className="mr-2 text-red-400 text-xs">&#x2715;</span>
                       )}
-                      {result.kind === "websearch" && (
+                      {(result.kind === "websearch" || result.kind === "snippet") && (
                         <span className="mr-2">{result.icon}</span>
                       )}
                       {result.name}
@@ -620,7 +669,11 @@ function App() {
                   <div className="flex items-center gap-2 shrink-0 ml-3">
                     {isSelected && (
                       <span className="text-[10px] text-gray-500 whitespace-nowrap">
-                        {result.kind === "websearch" ? "⏎ Open" : "⏎"}
+                        {result.kind === "websearch"
+                          ? "⏎ Open"
+                          : result.kind === "snippet"
+                            ? "⏎ Copy"
+                            : "⏎"}
                       </span>
                     )}
                     {!isSelected && result.tag && (
