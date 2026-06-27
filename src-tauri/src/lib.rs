@@ -1,4 +1,5 @@
 mod calculator;
+mod commands;
 mod converter;
 mod indexer;
 mod searcher;
@@ -8,7 +9,9 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+
+use commands::CommandsConfig;
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
@@ -28,7 +31,7 @@ struct AppState {
     ready: Mutex<bool>,
 }
 
-fn data_dir() -> PathBuf {
+pub(crate) fn data_dir() -> PathBuf {
     let home = std::env::var("USERPROFILE").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(home).join(".keystrike")
 }
@@ -241,8 +244,12 @@ fn close_process(name: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn check_web_search(query: String) -> Option<web_search::WebSearchResult> {
-    web_search::check(&query)
+fn check_web_search(
+    query: String,
+    commands: State<'_, Arc<Mutex<CommandsConfig>>>,
+) -> Option<web_search::WebSearchResult> {
+    let cfg = commands.lock().unwrap();
+    web_search::check(&query, &cfg.web_search)
 }
 
 #[tauri::command]
@@ -251,8 +258,44 @@ fn get_google_fallback(query: String) -> web_search::WebSearchResult {
 }
 
 #[tauri::command]
-fn match_search_providers(query: String) -> Vec<web_search::WebSearchResult> {
-    web_search::match_providers(&query)
+fn match_search_providers(
+    query: String,
+    commands: State<'_, Arc<Mutex<CommandsConfig>>>,
+) -> Vec<web_search::WebSearchResult> {
+    let cfg = commands.lock().unwrap();
+    web_search::match_providers(&query, &cfg.web_search)
+}
+
+#[tauri::command]
+fn get_commands(commands: State<'_, Arc<Mutex<CommandsConfig>>>) -> CommandsConfig {
+    commands.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn update_command_keyword(
+    command_id: String,
+    new_keyword: String,
+    commands: State<'_, Arc<Mutex<CommandsConfig>>>,
+) -> Result<(), String> {
+    let mut cfg = commands.lock().unwrap();
+    let keyword = commands::validate(&cfg, &command_id, &new_keyword)?;
+    commands::apply(&mut cfg, &command_id, keyword);
+    commands::save(&cfg)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn reset_commands_to_defaults(
+    commands: State<'_, Arc<Mutex<CommandsConfig>>>,
+) -> CommandsConfig {
+    let defaults = CommandsConfig::defaults();
+    {
+        let mut cfg = commands.lock().unwrap();
+        *cfg = defaults.clone();
+    }
+    commands::delete_file();
+    let _ = commands::save(&defaults);
+    defaults
 }
 
 #[tauri::command]
@@ -363,8 +406,11 @@ pub fn run() {
         ready: Mutex::new(false),
     };
 
+    let commands_config = Arc::new(Mutex::new(commands::load()));
+
     tauri::Builder::default()
         .manage(app_state)
+        .manage(commands_config)
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -399,6 +445,9 @@ pub fn run() {
             is_first_launch,
             mark_first_launch_done,
             open_settings_window,
+            get_commands,
+            update_command_keyword,
+            reset_commands_to_defaults,
         ])
         .setup(|app| {
             // Register hotkey

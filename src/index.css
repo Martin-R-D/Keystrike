@@ -55,3 +55,37 @@ body,
 .settings-row:hover {
   background: rgba(255, 255, 255, 0.04);
 }
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.icon-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+@keyframes flash-saved-bg {
+  0% { background: rgba(34, 197, 94, 0.28); }
+  100% { background: rgba(34, 197, 94, 0); }
+}
+
+.flash-saved {
+  animation: flash-saved-bg 700ms ease-out;
+}
+
+@keyframes fade-out-saved {
+  0%, 65% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.saved-badge {
+  animation: fade-out-saved 1200ms ease-out forwards;
+}

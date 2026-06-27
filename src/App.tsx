@@ -52,7 +52,7 @@ interface IndexStatus {
   count: number;
 }
 
-const COMMANDS = [{ name: "close", description: "Close a running application" }];
+const DEFAULT_CLOSE_KEYWORD = "/close";
 
 const BAR_HEIGHT = 72;
 const ROW_HEIGHT = 48;
@@ -76,6 +76,7 @@ function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [windowVisible, setWindowVisible] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
+  const [closeKeyword, setCloseKeyword] = useState(DEFAULT_CLOSE_KEYWORD);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -118,14 +119,28 @@ function App() {
     restorePosition();
   }, []);
 
+  const loadCloseKeyword = useCallback(async () => {
+    try {
+      const cfg = await invoke<{ system: Record<string, string> }>("get_commands");
+      const kw = cfg.system?.close;
+      if (kw) setCloseKeyword(kw);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    loadCloseKeyword();
+  }, [loadCloseKeyword]);
+
   useEffect(() => {
     const onFocus = () => {
       setWindowVisible(true);
       inputRef.current?.focus();
+      // Pick up keyword changes made in the settings window.
+      loadCloseKeyword();
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, []);
+  }, [loadCloseKeyword]);
 
   const resizeWindow = useCallback(async (items: DisplayResult[]) => {
     let h = BAR_HEIGHT;
@@ -160,46 +175,82 @@ function App() {
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!indexReady && !query.startsWith("/")) return;
+
+    const ck = closeKeyword;
+    const ckLower = ck.toLowerCase();
+    const ckHasSlash = ck.startsWith("/");
+    const ql = query.toLowerCase();
+    const closeArgMode = ql.startsWith(ckLower + " ");
+    const closeExact = ql === ckLower;
+
+    if (!indexReady && !query.startsWith("/") && !closeArgMode && !closeExact) return;
 
     debounceRef.current = setTimeout(async () => {
       try {
         let items: DisplayResult[] = [];
 
-        if (query.startsWith("/")) {
+        if (closeArgMode) {
+          // Close command with a target -> list running processes to kill.
+          const arg = query.slice(ck.length + 1).trim();
+          const procs = await invoke<ProcessInfo[]>("search_running_apps", {
+            query: arg,
+          });
+          items = procs.map((p, i) => ({
+            id: i,
+            name: p.name,
+            detail: p.exe,
+            kind: "process",
+            meta: p.exe,
+            tag: "Process",
+          }));
+
+          // App/file results still show below, so an app literally named like
+          // the keyword can still be launched.
+          if (indexReady) {
+            const appResults = await invoke<AppSearchResult[]>("search_apps", {
+              query,
+            }).catch(() => []);
+            items.push(
+              ...appResults.map((r) => ({
+                id: r.id,
+                name: r.name,
+                detail: r.path,
+                kind: "app" as ResultKind,
+                tag: "App",
+              })),
+            );
+          }
+        } else if (query.startsWith("/")) {
+          // Slash command discovery menu.
           const afterSlash = query.slice(1);
-          const spaceIdx = afterSlash.indexOf(" ");
-
-          if (spaceIdx === -1) {
-            items = COMMANDS.filter((c) =>
-              c.name.startsWith(afterSlash.toLowerCase()),
-            ).map((c, i) => ({
-              id: i,
-              name: `/${c.name}`,
-              detail: c.description,
-              kind: "command",
-              tag: "Command",
-            }));
-          } else {
-            const cmd = afterSlash.slice(0, spaceIdx).toLowerCase();
-            const arg = afterSlash.slice(spaceIdx + 1).trim();
-
-            if (cmd === "close") {
-              const procs = await invoke<ProcessInfo[]>(
-                "search_running_apps",
-                { query: arg },
-              );
-              items = procs.map((p, i) => ({
-                id: i,
-                name: p.name,
-                detail: p.exe,
-                kind: "process",
-                meta: p.exe,
-                tag: "Process",
-              }));
-            }
+          if (
+            afterSlash.indexOf(" ") === -1 &&
+            ckHasSlash &&
+            ckLower.startsWith(ql)
+          ) {
+            items = [
+              {
+                id: -20,
+                name: ck,
+                detail: "Close a running application",
+                kind: "command",
+                tag: "Command",
+              },
+            ];
           }
         } else if (query.length > 0) {
+          // When the close keyword has no slash and is typed exactly, offer it
+          // as a command (apps/files still appear below).
+          if (closeExact && !ckHasSlash) {
+            items.push({
+              id: -20,
+              name: ck,
+              detail: "Close a running application",
+              kind: "command",
+              tag: "Command",
+            });
+          }
+
           const [evalResult, webResult, appResults, prefixHints] = await Promise.all([
             invoke<EvalResult | null>("evaluate_input", { query }).catch(() => null),
             invoke<WebSearchResult | null>("check_web_search", { query }).catch(() => null),
@@ -284,7 +335,7 @@ function App() {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, resizeWindow, indexReady]);
+  }, [query, resizeWindow, indexReady, closeKeyword]);
 
   const handleAction = useCallback(
     (item: DisplayResult) => {
@@ -555,7 +606,7 @@ function App() {
                         <span className="mr-2 text-red-400 text-xs">&#x2715;</span>
                       )}
                       {result.kind === "command" && (
-                        <span className="mr-2 text-indigo-400">/</span>
+                        <span className="mr-2 text-red-400 text-xs">&#x2715;</span>
                       )}
                       {result.kind === "websearch" && (
                         <span className="mr-2">{result.icon}</span>
