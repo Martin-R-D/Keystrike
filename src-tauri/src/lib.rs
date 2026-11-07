@@ -4,6 +4,7 @@ mod commands;
 mod converter;
 mod indexer;
 mod notes;
+mod pins;
 mod searcher;
 mod web_search;
 
@@ -31,6 +32,7 @@ struct AppState {
     apps: Mutex<Vec<AppEntry>>,
     searcher: searcher::Searcher,
     ready: Mutex<bool>,
+    pins: Mutex<Vec<pins::Pin>>,
 }
 
 pub(crate) fn data_dir() -> PathBuf {
@@ -123,10 +125,11 @@ fn get_index_status(state: State<'_, AppState>) -> IndexStatus {
 #[tauri::command]
 fn search_apps(query: String, state: State<'_, AppState>) -> Vec<SearchResult> {
     let apps = state.apps.lock().unwrap();
+    let pin_list = state.pins.lock().unwrap();
     if query.is_empty() {
-        searcher::most_used(&apps, 8)
+        searcher::most_used(&apps, 8, &pin_list)
     } else {
-        state.searcher.search(&query, &apps, 8)
+        state.searcher.search(&query, &apps, 8, &pin_list)
     }
 }
 
@@ -358,6 +361,25 @@ fn execute_snippet(content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn toggle_pin(id: u64, state: State<'_, AppState>) -> Result<bool, String> {
+    let apps = state.apps.lock().unwrap();
+    let entry = apps.iter().find(|a| a.id == id).ok_or("App not found")?;
+    let name = entry.name.clone();
+    let launch_path = entry.launch_path.clone();
+    drop(apps);
+
+    let mut pin_list = state.pins.lock().unwrap();
+    let now_pinned = pins::toggle(&mut pin_list, &name, &launch_path);
+    pins::save(&pin_list)?;
+    Ok(now_pinned)
+}
+
+#[tauri::command]
+fn get_pins(state: State<'_, AppState>) -> Vec<pins::Pin> {
+    state.pins.lock().unwrap().clone()
+}
+
+#[tauri::command]
 fn save_note(text: String) -> Result<(), String> {
     notes::save(&text)
 }
@@ -493,6 +515,7 @@ pub fn run() {
         apps: Mutex::new(Vec::new()),
         searcher: searcher::Searcher::new(),
         ready: Mutex::new(false),
+        pins: Mutex::new(pins::load()),
     };
 
     let commands_config = Arc::new(Mutex::new(commands::load()));
@@ -543,6 +566,8 @@ pub fn run() {
             execute_snippet,
             save_note,
             get_notes,
+            toggle_pin,
+            get_pins,
         ])
         .setup(|app| {
             // Register hotkey

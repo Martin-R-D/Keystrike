@@ -17,6 +17,7 @@ interface DisplayResult {
   icon?: string;
   url?: string;
   tag?: string;
+  isPinned?: boolean;
 }
 
 interface AppSearchResult {
@@ -24,6 +25,7 @@ interface AppSearchResult {
   name: string;
   path: string;
   score: number;
+  is_pinned: boolean;
 }
 
 interface ProcessInfo {
@@ -305,6 +307,7 @@ function App() {
                 detail: r.path,
                 kind: "app" as ResultKind,
                 tag: "App",
+                isPinned: r.is_pinned,
               })),
             );
           }
@@ -403,6 +406,7 @@ function App() {
               detail: r.path,
               kind: "app" as ResultKind,
               tag: "App",
+              isPinned: r.is_pinned,
             })),
           );
 
@@ -497,6 +501,25 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "p" && e.ctrlKey) {
+        const selected = results[selectedIndex];
+        if (selected?.kind === "app") {
+          e.preventDefault();
+          invoke<boolean>("toggle_pin", { id: selected.id })
+            .then((nowPinned) => {
+              showToast(nowPinned ? "Pinned" : "Unpinned");
+              // Refresh results so pin order and icon update immediately.
+              setResults((prev) =>
+                prev.map((r) =>
+                  r.id === selected.id ? { ...r, isPinned: nowPinned } : r,
+                ),
+              );
+            })
+            .catch(console.error);
+        }
+        return;
+      }
+
       switch (e.key) {
         case "Escape":
           hideWindow();
@@ -852,16 +875,21 @@ function App() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0 ml-3">
+                    {result.isPinned && (
+                      <span className="text-[11px] opacity-60" title="Pinned">📌</span>
+                    )}
                     {isSelected && (
                       <span className="text-[10px] text-gray-500 whitespace-nowrap">
-                        {result.kind === "websearch"
-                          ? "⏎ Open"
-                          : result.kind === "snippet"
-                            ? "⏎ Copy"
-                            : "⏎"}
+                        {result.kind === "app"
+                          ? (result.isPinned ? "^P Unpin  ⏎" : "^P Pin  ⏎")
+                          : result.kind === "websearch"
+                            ? "⏎ Open"
+                            : result.kind === "snippet"
+                              ? "⏎ Copy"
+                              : "⏎"}
                       </span>
                     )}
-                    {!isSelected && result.tag && (
+                    {!isSelected && !result.isPinned && result.tag && (
                       <span className="text-[10px] text-gray-600 whitespace-nowrap">{result.tag}</span>
                     )}
                   </div>
