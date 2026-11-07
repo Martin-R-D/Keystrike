@@ -5,7 +5,7 @@ import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 
 const appWindow = getCurrentWebviewWindow();
 
-type ResultKind = "app" | "command" | "process" | "calc" | "convert" | "websearch" | "prefix-hint" | "snippet";
+type ResultKind = "app" | "command" | "process" | "calc" | "convert" | "color" | "websearch" | "prefix-hint" | "snippet";
 
 interface DisplayResult {
   id: number;
@@ -38,6 +38,9 @@ interface EvalResult {
   display: string;
   input_unit: string | null;
   output_unit: string | null;
+  color_hex: string | null;
+  color_rgb: string | null;
+  color_hsl: string | null;
 }
 
 interface WebSearchResult {
@@ -80,6 +83,7 @@ const MAX_HEIGHT = BAR_HEIGHT + MAX_VISIBLE * ROW_HEIGHT;
 
 function rowHeight(kind: ResultKind): number {
   if (kind === "calc" || kind === "convert") return EVAL_ROW_HEIGHT;
+  if (kind === "color") return 68;
   if (kind === "prefix-hint") return HINT_ROW_HEIGHT;
   return ROW_HEIGHT;
 }
@@ -311,17 +315,29 @@ function App() {
             items.push(commandResultToItem(cmdResult));
           }
 
-          // 2. Calculator / unit converter.
+          // 2. Calculator / unit converter / color picker.
           if (evalResult) {
-            const isCalc = evalResult.result_type === "calculator";
-            items.push({
-              id: -1,
-              name: isCalc ? evalResult.expression : evalResult.display,
-              detail: isCalc ? `= ${evalResult.display}` : "",
-              kind: isCalc ? "calc" : "convert",
-              copyValue: String(evalResult.result),
-              tag: isCalc ? "Calculator" : "Converter",
-            });
+            if (evalResult.result_type === "color") {
+              items.push({
+                id: -1,
+                name: evalResult.color_hex ?? evalResult.display,
+                detail: `${evalResult.color_rgb}  ·  ${evalResult.color_hsl}`,
+                kind: "color",
+                copyValue: evalResult.color_hex ?? evalResult.display,
+                meta: evalResult.color_hex ?? "",
+                tag: "Color",
+              });
+            } else {
+              const isCalc = evalResult.result_type === "calculator";
+              items.push({
+                id: -1,
+                name: isCalc ? evalResult.expression : evalResult.display,
+                detail: isCalc ? `= ${evalResult.display}` : "",
+                kind: isCalc ? "calc" : "convert",
+                copyValue: String(evalResult.result),
+                tag: isCalc ? "Calculator" : "Converter",
+              });
+            }
           }
 
           // Partial-keyword hints when nothing matched exactly.
@@ -381,7 +397,7 @@ function App() {
 
   const handleAction = useCallback(
     (item: DisplayResult) => {
-      if (item.kind === "calc" || item.kind === "convert") {
+      if (item.kind === "calc" || item.kind === "convert" || item.kind === "color") {
         navigator.clipboard
           .writeText(item.copyValue ?? "")
           .then(() => {
@@ -598,6 +614,50 @@ function App() {
                       )}
                       {!isSelected && result.tag && (
                         <span className="text-[10px] text-gray-600 whitespace-nowrap">{result.tag}</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+
+              if (result.kind === "color") {
+                return (
+                  <div
+                    key={`color-${result.id}`}
+                    className="result-enter flex cursor-pointer items-center justify-between px-4"
+                    style={{
+                      animationDelay: `${index * 20}ms`,
+                      height: 68,
+                      background: isSelected ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.02)",
+                      borderLeft: isSelected ? "2px solid #6366f1" : "2px solid transparent",
+                      borderRadius: radius,
+                      transition: "background 100ms ease",
+                    }}
+                    onClick={() => handleAction(result)}
+                    onMouseEnter={() => setSelectedIndex(index)}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 8,
+                          background: result.meta,
+                          flexShrink: 0,
+                          border: "1px solid rgba(255,255,255,0.15)",
+                          boxShadow: `0 0 12px 2px ${result.meta}55`,
+                        }}
+                      />
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-white">{result.name}</div>
+                        <div className="text-xs text-gray-500 truncate">{result.detail}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 ml-3">
+                      {isSelected ? (
+                        <span className="text-[10px] text-gray-500 whitespace-nowrap">&#x23CE; Copy hex</span>
+                      ) : (
+                        <span className="text-[10px] text-gray-600 whitespace-nowrap">Color</span>
                       )}
                     </div>
                   </div>
