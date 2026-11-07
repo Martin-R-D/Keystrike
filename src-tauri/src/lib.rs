@@ -3,6 +3,7 @@ mod color;
 mod commands;
 mod converter;
 mod indexer;
+mod notes;
 mod searcher;
 mod web_search;
 
@@ -357,6 +358,16 @@ fn execute_snippet(content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn save_note(text: String) -> Result<(), String> {
+    notes::save(&text)
+}
+
+#[tauri::command]
+fn get_notes() -> Vec<notes::NoteEntry> {
+    notes::list()
+}
+
+#[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
     open::that(&url).map_err(|e| e.to_string())
 }
@@ -530,6 +541,8 @@ pub fn run() {
             update_custom_command,
             delete_custom_command,
             execute_snippet,
+            save_note,
+            get_notes,
         ])
         .setup(|app| {
             // Register hotkey

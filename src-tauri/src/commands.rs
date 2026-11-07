@@ -110,6 +110,8 @@ fn builtin_icon(id: &str) -> &'static str {
         "stackoverflow" => "\u{1F4DA}",
         "duckduckgo" => "\u{1F986}",
         "close" => "\u{2715}",
+        "note" => "\u{1F4DD}",
+        "notes" => "\u{1F4CB}",
         _ => "\u{1F517}",
     }
 }
@@ -148,6 +150,32 @@ impl AllCommandsConfig {
                 url: None,
                 fallback: None,
                 description: "Force-closes a running application".to_string(),
+                editable_keyword: true,
+                deletable: false,
+            },
+        );
+        builtin.insert(
+            "note".to_string(),
+            BuiltinCommand {
+                keyword: "note".to_string(),
+                cmd_type: "system".to_string(),
+                label: "Quick Note".to_string(),
+                url: None,
+                fallback: None,
+                description: "Save a quick note to your scratchpad".to_string(),
+                editable_keyword: true,
+                deletable: false,
+            },
+        );
+        builtin.insert(
+            "notes".to_string(),
+            BuiltinCommand {
+                keyword: "notes".to_string(),
+                cmd_type: "system".to_string(),
+                label: "View Notes".to_string(),
+                url: None,
+                fallback: None,
+                description: "Browse and copy your saved notes".to_string(),
                 editable_keyword: true,
                 deletable: false,
             },
