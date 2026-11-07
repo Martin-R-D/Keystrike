@@ -5,7 +5,7 @@ import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 
 const appWindow = getCurrentWebviewWindow();
 
-type ResultKind = "app" | "command" | "process" | "calc" | "convert" | "color" | "websearch" | "prefix-hint" | "snippet";
+type ResultKind = "app" | "command" | "process" | "calc" | "convert" | "color" | "websearch" | "prefix-hint" | "snippet" | "note-save" | "note-item";
 
 interface DisplayResult {
   id: number;
@@ -72,6 +72,11 @@ interface IndexStatus {
   count: number;
 }
 
+interface NoteEntry {
+  text: string;
+  timestamp: string;
+}
+
 const DEFAULT_CLOSE_KEYWORD = "/close";
 
 const BAR_HEIGHT = 72;
@@ -85,6 +90,7 @@ function rowHeight(kind: ResultKind): number {
   if (kind === "calc" || kind === "convert") return EVAL_ROW_HEIGHT;
   if (kind === "color") return 68;
   if (kind === "prefix-hint") return HINT_ROW_HEIGHT;
+  if (kind === "note-item") return 52;
   return ROW_HEIGHT;
 }
 
@@ -122,6 +128,8 @@ function App() {
   const [windowVisible, setWindowVisible] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [closeKeyword, setCloseKeyword] = useState(DEFAULT_CLOSE_KEYWORD);
+  const [noteKeyword, setNoteKeyword] = useState("note");
+  const [notesKeyword, setNotesKeyword] = useState("notes");
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -169,8 +177,9 @@ function App() {
       const cfg = await invoke<{ builtin: Record<string, { keyword: string }> }>(
         "get_all_commands",
       );
-      const kw = cfg.builtin?.close?.keyword;
-      if (kw) setCloseKeyword(kw);
+      if (cfg.builtin?.close?.keyword) setCloseKeyword(cfg.builtin.close.keyword);
+      if (cfg.builtin?.note?.keyword) setNoteKeyword(cfg.builtin.note.keyword);
+      if (cfg.builtin?.notes?.keyword) setNotesKeyword(cfg.builtin.notes.keyword);
     } catch {}
   }, []);
 
@@ -229,14 +238,46 @@ function App() {
     const ql = query.toLowerCase();
     const closeArgMode = ql.startsWith(ckLower + " ");
     const closeExact = ql === ckLower;
+    const noteArgMode = ql.startsWith(noteKeyword.toLowerCase() + " ");
+    const notesExact = ql === notesKeyword.toLowerCase();
 
-    if (!indexReady && !query.startsWith("/") && !closeArgMode && !closeExact) return;
+    if (!indexReady && !query.startsWith("/") && !closeArgMode && !closeExact && !noteArgMode && !notesExact) return;
 
     debounceRef.current = setTimeout(async () => {
       try {
         let items: DisplayResult[] = [];
 
-        if (closeArgMode) {
+        if (noteArgMode) {
+          const text = query.slice(noteKeyword.length + 1).trim();
+          items = [{
+            id: -30,
+            name: `Save note: "${text}"`,
+            detail: "Saves to your scratchpad",
+            kind: "note-save",
+            copyValue: text,
+            tag: "Note",
+          }];
+        } else if (notesExact) {
+          const noteList = await invoke<NoteEntry[]>("get_notes").catch(() => []);
+          if (noteList.length === 0) {
+            items = [{
+              id: -31,
+              name: "No notes yet",
+              detail: `Type "${noteKeyword} <text>" to save one`,
+              kind: "note-item",
+              tag: "Note",
+            }];
+          } else {
+            items = noteList.map((n, i) => ({
+              id: -31 - i,
+              name: n.text,
+              detail: n.timestamp,
+              kind: "note-item" as ResultKind,
+              copyValue: n.text,
+              tag: "Note",
+            }));
+          }
+        } else if (closeArgMode) {
           // Close command with a target -> list running processes to kill.
           const arg = query.slice(ck.length + 1).trim();
           const procs = await invoke<ProcessInfo[]>("search_running_apps", {
@@ -393,7 +434,7 @@ function App() {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, resizeWindow, indexReady, closeKeyword]);
+  }, [query, resizeWindow, indexReady, closeKeyword, noteKeyword, notesKeyword]);
 
   const handleAction = useCallback(
     (item: DisplayResult) => {
@@ -405,6 +446,23 @@ function App() {
             hideWindow();
           })
           .catch(console.error);
+      } else if (item.kind === "note-save") {
+        invoke("save_note", { text: item.copyValue ?? "" })
+          .then(() => {
+            showToast("Note saved");
+            hideWindow();
+          })
+          .catch(console.error);
+      } else if (item.kind === "note-item") {
+        if (item.copyValue) {
+          navigator.clipboard
+            .writeText(item.copyValue)
+            .then(() => {
+              showToast("Copied to clipboard");
+              hideWindow();
+            })
+            .catch(console.error);
+        }
       } else if (item.kind === "prefix-hint") {
         setQuery(item.name + " ");
         inputRef.current?.focus();
@@ -614,6 +672,73 @@ function App() {
                       )}
                       {!isSelected && result.tag && (
                         <span className="text-[10px] text-gray-600 whitespace-nowrap">{result.tag}</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+
+              if (result.kind === "note-save") {
+                return (
+                  <div
+                    key={`note-save-${result.id}`}
+                    className="result-enter flex cursor-pointer items-center justify-between px-4"
+                    style={{
+                      animationDelay: `${index * 20}ms`,
+                      height: ROW_HEIGHT,
+                      background: isSelected ? "rgba(234, 179, 8, 0.1)" : "rgba(234, 179, 8, 0.03)",
+                      borderLeft: isSelected ? "2px solid #eab308" : "2px solid transparent",
+                      borderRadius: radius,
+                      transition: "background 100ms ease",
+                    }}
+                    onClick={() => handleAction(result)}
+                    onMouseEnter={() => setSelectedIndex(index)}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-base shrink-0 opacity-70">📝</span>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-white">{result.name}</div>
+                        <div className="text-xs text-gray-500">{result.detail}</div>
+                      </div>
+                    </div>
+                    <div className="shrink-0 ml-3">
+                      {isSelected ? (
+                        <span className="text-[10px] text-gray-500 whitespace-nowrap">⏎ Save</span>
+                      ) : (
+                        <span className="text-[10px] text-gray-600 whitespace-nowrap">Note</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+
+              if (result.kind === "note-item") {
+                return (
+                  <div
+                    key={`note-item-${result.id}`}
+                    className="result-enter flex cursor-pointer items-center justify-between px-4"
+                    style={{
+                      animationDelay: `${index * 20}ms`,
+                      height: 52,
+                      background: isSelected ? "rgba(255,255,255,0.07)" : "transparent",
+                      borderLeft: isSelected ? "2px solid #eab308" : "2px solid transparent",
+                      borderRadius: radius,
+                      transition: "background 100ms ease",
+                    }}
+                    onClick={() => handleAction(result)}
+                    onMouseEnter={() => setSelectedIndex(index)}
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm text-white">{result.name}</div>
+                      {result.detail && (
+                        <div className="text-[11px] text-gray-600">{result.detail}</div>
+                      )}
+                    </div>
+                    <div className="shrink-0 ml-3">
+                      {isSelected ? (
+                        <span className="text-[10px] text-gray-500 whitespace-nowrap">⏎ Copy</span>
+                      ) : (
+                        <span className="text-[10px] text-gray-600 whitespace-nowrap">Note</span>
                       )}
                     </div>
                   </div>
