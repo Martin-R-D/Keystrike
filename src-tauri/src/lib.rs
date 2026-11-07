@@ -1,4 +1,5 @@
 mod calculator;
+mod color;
 mod commands;
 mod converter;
 mod indexer;
@@ -94,6 +95,9 @@ struct EvalResult {
     display: String,
     input_unit: Option<String>,
     output_unit: Option<String>,
+    color_hex: Option<String>,
+    color_rgb: Option<String>,
+    color_hsl: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -369,6 +373,20 @@ fn load_position() -> Option<WindowPosition> {
 
 #[tauri::command]
 fn evaluate_input(query: String) -> Option<EvalResult> {
+    if let Some(col) = color::parse_color(&query) {
+        return Some(EvalResult {
+            result_type: "color".to_string(),
+            expression: query.clone(),
+            result: 0.0,
+            display: col.hex.clone(),
+            input_unit: None,
+            output_unit: None,
+            color_hex: Some(col.hex),
+            color_rgb: Some(col.rgb),
+            color_hsl: Some(col.hsl),
+        });
+    }
+
     if let Some(calc) = calculator::evaluate(&query) {
         return Some(EvalResult {
             result_type: "calculator".to_string(),
@@ -377,6 +395,9 @@ fn evaluate_input(query: String) -> Option<EvalResult> {
             display: calc.display,
             input_unit: None,
             output_unit: None,
+            color_hex: None,
+            color_rgb: None,
+            color_hsl: None,
         });
     }
 
@@ -388,6 +409,9 @@ fn evaluate_input(query: String) -> Option<EvalResult> {
             display: conv.display,
             input_unit: Some(conv.input_unit),
             output_unit: Some(conv.output_unit),
+            color_hex: None,
+            color_rgb: None,
+            color_hsl: None,
         });
     }
 
