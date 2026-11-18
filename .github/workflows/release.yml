@@ -1,0 +1,40 @@
+name: Release
+
+# Publishes a GitHub release with the Windows installer whenever a version
+# tag such as v0.3.0 is pushed. The release notes come from RELEASE_NOTES.md.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Keystrike ${{ github.ref_name }}"
+          releaseBody: "See RELEASE_NOTES.md in the repository for this version's changes."
+          releaseDraft: false
+          prerelease: false
