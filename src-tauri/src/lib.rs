@@ -11,6 +11,7 @@ mod indexer;
 mod notes;
 mod pins;
 mod quick_actions;
+mod scripts;
 mod searcher;
 mod theme;
 mod web_search;
@@ -494,6 +495,47 @@ fn rebuild_file_index(handle: tauri::AppHandle) {
     });
 }
 
+/// Scripts whose keyword does not clash with a built-in or custom command
+/// (commands always win, so a clashing script could never be reached).
+fn usable_scripts(cfg: &AllCommandsConfig) -> Vec<scripts::Script> {
+    scripts::discover(&scripts::scripts_dir())
+        .into_iter()
+        .filter(|s| commands::validate_keyword(cfg, None, &s.keyword).is_ok())
+        .collect()
+}
+
+#[tauri::command]
+fn get_scripts(commands: State<'_, Arc<Mutex<AllCommandsConfig>>>) -> Vec<scripts::Script> {
+    usable_scripts(&commands.lock().unwrap())
+}
+
+/// Run a script by keyword. Runs on a worker thread so a slow script never
+/// freezes the window.
+#[tauri::command]
+async fn run_script(
+    keyword: String,
+    args: String,
+    commands: State<'_, Arc<Mutex<AllCommandsConfig>>>,
+) -> Result<Vec<scripts::ScriptResult>, String> {
+    let script = {
+        let cfg = commands.lock().unwrap();
+        usable_scripts(&cfg)
+            .into_iter()
+            .find(|s| s.keyword == keyword.to_lowercase())
+            .ok_or("Script not found")?
+    };
+    let args: Vec<String> = args.split_whitespace().map(String::from).collect();
+    tauri::async_runtime::spawn_blocking(move || scripts::run(&script, &args))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn open_scripts_folder() -> Result<(), String> {
+    let dir = scripts::ensure_dir()?;
+    open::that(dir).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn get_theme() -> theme::ThemeConfig {
     theme::load()
@@ -841,6 +883,9 @@ pub fn run() {
             search_files,
             open_path,
             reveal_path,
+            get_scripts,
+            run_script,
+            open_scripts_folder,
             get_theme,
             set_theme,
             get_aliases,
