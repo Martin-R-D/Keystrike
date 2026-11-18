@@ -21,7 +21,6 @@ pub struct Rates {
 
 #[derive(Debug, Clone)]
 pub struct CurrencyConversion {
-    pub amount: f64,
     pub from: String,
     pub to: String,
     pub result: f64,
@@ -155,7 +154,6 @@ pub fn convert(query: &str, rates: &Rates) -> Option<CurrencyConversion> {
     }
     Some(CurrencyConversion {
         display: format!("{} {} = {} {}", format_amount(amount), from, format_amount(result), to),
-        amount,
         from,
         to,
         result,

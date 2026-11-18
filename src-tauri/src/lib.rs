@@ -3,6 +3,7 @@ mod calculator;
 mod color;
 mod commands;
 mod converter;
+mod currency;
 mod hotkey;
 mod indexer;
 mod notes;
@@ -34,6 +35,9 @@ use searcher::SearchResult;
 
 /// The currently registered global hotkey (e.g. "Alt+Space").
 struct CurrentHotkey(Mutex<String>);
+
+/// Latest exchange rates (relative to USD), if any have been loaded.
+struct CurrencyRates(Mutex<Option<currency::Rates>>);
 
 /// The tray's "Show Keystrike" item, kept so its label can show the hotkey.
 struct ShowMenuItem(MenuItem<tauri::Wry>);
@@ -538,7 +542,7 @@ fn load_position() -> Option<WindowPosition> {
 }
 
 #[tauri::command]
-fn evaluate_input(query: String) -> Option<EvalResult> {
+fn evaluate_input(query: String, rates: State<'_, CurrencyRates>) -> Option<EvalResult> {
     if let Some(col) = color::parse_color(&query) {
         return Some(EvalResult {
             result_type: "color".to_string(),
@@ -579,6 +583,23 @@ fn evaluate_input(query: String) -> Option<EvalResult> {
             color_rgb: None,
             color_hsl: None,
         });
+    }
+
+    // Currency comes last so unit conversions keep their existing behaviour.
+    if let Some(rates) = rates.0.lock().unwrap().as_ref() {
+        if let Some(cur) = currency::convert(&query, rates) {
+            return Some(EvalResult {
+                result_type: "converter".to_string(),
+                expression: cur.display.clone(),
+                result: cur.result,
+                display: cur.display,
+                input_unit: Some(cur.from),
+                output_unit: Some(cur.to),
+                color_hex: None,
+                color_rgb: None,
+                color_hsl: None,
+            });
+        }
     }
 
     None
@@ -659,6 +680,7 @@ pub fn run() {
         .manage(app_state)
         .manage(commands_config)
         .manage(CurrentHotkey(Mutex::new(initial_hotkey)))
+        .manage(CurrencyRates(Mutex::new(currency::load_cached())))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -818,6 +840,27 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // Keep exchange rates fresh in the background; failures just leave
+            // the cached rates (or none) in place and are retried later.
+            let rates_handle = app.handle().clone();
+            std::thread::spawn(move || loop {
+                let stale = currency::is_stale(&rates_handle.state::<CurrencyRates>().0.lock().unwrap());
+                let mut wait = 60 * 60;
+                if stale {
+                    match currency::fetch() {
+                        Ok(fresh) => {
+                            *rates_handle.state::<CurrencyRates>().0.lock().unwrap() = Some(fresh);
+                            eprintln!("[keystrike] Exchange rates updated");
+                        }
+                        Err(e) => {
+                            eprintln!("[keystrike] Exchange rate update failed: {}", e);
+                            wait = 10 * 60;
+                        }
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_secs(wait));
+            });
 
             // Background indexing
             let handle = app.handle().clone();
