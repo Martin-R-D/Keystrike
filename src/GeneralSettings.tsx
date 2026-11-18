@@ -411,6 +411,72 @@ function ClipboardSection() {
   );
 }
 
+interface ScriptEntry {
+  keyword: string;
+  file_name: string;
+}
+
+function ScriptsSection() {
+  const [scripts, setScripts] = useState<ScriptEntry[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    invoke<ScriptEntry[]>("get_scripts").then(setScripts).catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    load();
+    window.addEventListener("focus", load);
+    return () => window.removeEventListener("focus", load);
+  }, [load]);
+
+  return (
+    <section>
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Scripts</h2>
+      <p className="mt-1 text-xs text-gray-500">
+        Put <span className="font-mono text-gray-400">.ps1</span>, <span className="font-mono text-gray-400">.py</span>, <span className="font-mono text-gray-400">.bat</span>, <span className="font-mono text-gray-400">.cmd</span> or <span className="font-mono text-gray-400">.exe</span> files in your scripts folder. Type the file name followed by arguments in the search bar; each line the script prints becomes a result.
+      </p>
+      <div className="mt-3 rounded-xl p-4" style={{ border: "1px solid rgba(var(--fg-rgb), 0.07)" }}>
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-gray-200">
+            {scripts.length === 0 ? "No scripts yet" : `${scripts.length} script${scripts.length === 1 ? "" : "s"} found`}
+          </div>
+          <button
+            type="button"
+            className="rounded-md px-3 py-1.5 text-sm font-medium text-gray-200 transition-colors hover:bg-white/10"
+            style={{ border: "1px solid rgba(var(--fg-rgb), 0.12)" }}
+            onClick={() =>
+              invoke("open_scripts_folder")
+                .then(() => {
+                  setError(null);
+                  window.setTimeout(load, 500);
+                })
+                .catch((e) => setError(String(e)))
+            }
+          >
+            Open scripts folder
+          </button>
+        </div>
+        {scripts.length > 0 && (
+          <div className="mt-3 flex flex-col">
+            {scripts.map((s, i) => (
+              <div
+                key={s.keyword}
+                className="flex items-center gap-3 py-2 text-sm"
+                style={{ borderTop: i === 0 ? "none" : "1px solid rgba(var(--fg-rgb), 0.05)" }}
+              >
+                <span className="w-28 shrink-0 font-mono font-medium text-indigo-400">{s.keyword}</span>
+                <span className="truncate text-gray-400">{s.file_name}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {error && <div className="mt-2 text-xs font-medium text-red-400">{error}</div>}
+      </div>
+    </section>
+  );
+}
+
 function GeneralSettings() {
   return (
     <div>
@@ -420,6 +486,7 @@ function GeneralSettings() {
         <HotkeySection />
         <AppearanceSection />
         <ClipboardSection />
+        <ScriptsSection />
         <AliasesSection />
       </div>
     </div>
