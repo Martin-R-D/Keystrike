@@ -5,7 +5,7 @@ import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 
 const appWindow = getCurrentWebviewWindow();
 
-type ResultKind = "app" | "command" | "process" | "calc" | "convert" | "color" | "websearch" | "prefix-hint" | "snippet" | "note-save" | "note-item" | "clip-item" | "quick-action";
+type ResultKind = "app" | "command" | "process" | "calc" | "convert" | "color" | "websearch" | "prefix-hint" | "snippet" | "note-save" | "note-item" | "clip-item" | "window" | "quick-action";
 
 interface DisplayResult {
   id: number;
@@ -92,6 +92,11 @@ function timeAgo(epochSecs: number): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+interface WindowInfo {
+  hwnd: number;
+  title: string;
+}
+
 interface IndexStatus {
   ready: boolean;
   count: number;
@@ -157,6 +162,7 @@ function App() {
   const [notesKeyword, setNotesKeyword] = useState("notes");
   const [clipKeyword, setClipKeyword] = useState("clip");
   const [snipKeyword, setSnipKeyword] = useState("snip");
+  const [winKeyword, setWinKeyword] = useState("win");
   const [hotkey, setHotkey] = useState("Alt+Space");
   // Id of a destructive quick action waiting for a second Enter to confirm.
   const [pendingConfirm, setPendingConfirm] = useState<string | null>(null);
@@ -212,6 +218,7 @@ function App() {
       if (cfg.builtin?.notes?.keyword) setNotesKeyword(cfg.builtin.notes.keyword);
       if (cfg.builtin?.clip?.keyword) setClipKeyword(cfg.builtin.clip.keyword);
       if (cfg.builtin?.snippets?.keyword) setSnipKeyword(cfg.builtin.snippets.keyword);
+      if (cfg.builtin?.windows?.keyword) setWinKeyword(cfg.builtin.windows.keyword);
     } catch {}
   }, []);
 
@@ -281,14 +288,37 @@ function App() {
     const clipMode = ql === clipLower || ql.startsWith(clipLower + " ");
     const snipLower = snipKeyword.toLowerCase();
     const snipMode = ql === snipLower || ql.startsWith(snipLower + " ");
+    const winLower = winKeyword.toLowerCase();
+    const winMode = ql === winLower || ql.startsWith(winLower + " ");
 
-    if (!indexReady && !query.startsWith("/") && !closeArgMode && !closeExact && !noteArgMode && !notesExact && !clipMode && !snipMode) return;
+    if (!indexReady && !query.startsWith("/") && !closeArgMode && !closeExact && !noteArgMode && !notesExact && !clipMode && !snipMode && !winMode) return;
 
     debounceRef.current = setTimeout(async () => {
       try {
         let items: DisplayResult[] = [];
 
-        if (snipMode) {
+        if (winMode) {
+          const arg = query.slice(winKeyword.length).trim();
+          const wins = await invoke<WindowInfo[]>("search_windows", { query: arg }).catch(() => []);
+          if (wins.length === 0) {
+            items = [{
+              id: -70,
+              name: arg ? "No matching windows" : "No open windows found",
+              detail: arg ? "Try a different search" : "",
+              kind: "note-item",
+              tag: "Window",
+            }];
+          } else {
+            items = wins.map((w) => ({
+              id: w.hwnd,
+              name: w.title,
+              detail: "Switch to this window",
+              kind: "window" as ResultKind,
+              meta: String(w.hwnd),
+              tag: "Window",
+            }));
+          }
+        } else if (snipMode) {
           const arg = query.slice(snipKeyword.length).trim();
           const snippets = await invoke<CommandResult[]>("search_snippets", { query: arg }).catch(() => []);
           if (snippets.length === 0) {
@@ -535,7 +565,7 @@ function App() {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, resizeWindow, indexReady, closeKeyword, noteKeyword, notesKeyword, clipKeyword, snipKeyword]);
+  }, [query, resizeWindow, indexReady, closeKeyword, noteKeyword, notesKeyword, clipKeyword, snipKeyword, winKeyword]);
 
   const handleAction = useCallback(
     (item: DisplayResult) => {
@@ -589,6 +619,13 @@ function App() {
         invoke("run_quick_action", { id: actionId })
           .then(() => hideWindow())
           .catch((err) => showToast(`Failed: ${err}`));
+      } else if (item.kind === "window") {
+        // Hide first so focus can move to the chosen window.
+        hideWindow().then(() =>
+          invoke("focus_window", { hwnd: Number(item.meta) }).catch((err) =>
+            console.error("focus_window failed:", err),
+          ),
+        );
       } else if (item.kind === "app") {
         invoke<string>("launch_app", { id: item.id })
           .then(() => hideWindow())
@@ -1011,6 +1048,8 @@ function App() {
                             ? "⏎ Open"
                             : result.kind === "snippet"
                               ? "⏎ Copy"
+                              : result.kind === "window"
+                                ? "⏎ Switch"
                               : result.kind === "quick-action"
                                 ? (result.confirm && pendingConfirm === result.meta ? "⏎ Confirm" : "⏎ Run")
                                 : "⏎"}
