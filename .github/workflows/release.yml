@@ -1,11 +1,19 @@
 name: Release
 
 # Publishes a GitHub release with the Windows installer whenever a version
-# tag such as v0.3.0 is pushed. The release notes come from RELEASE_NOTES.md.
+# tag such as v0.3.0 is pushed, or when run manually with a tag name (the tag
+# is then created on the selected branch). The release notes come from
+# RELEASE_NOTES.md.
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create, e.g. v0.3.0"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -33,8 +41,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Keystrike ${{ github.ref_name }}"
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: "Keystrike ${{ inputs.tag || github.ref_name }}"
           releaseBody: "Release notes are being added."
           releaseDraft: false
           prerelease: false
@@ -42,4 +50,4 @@ jobs:
       - name: Set release notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${{ github.ref_name }}" --notes-file RELEASE_NOTES.md
+        run: gh release edit "${{ inputs.tag || github.ref_name }}" --notes-file RELEASE_NOTES.md
