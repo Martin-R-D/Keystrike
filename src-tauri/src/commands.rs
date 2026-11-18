@@ -113,6 +113,7 @@ fn builtin_icon(id: &str) -> &'static str {
         "note" => "\u{1F4DD}",
         "notes" => "\u{1F4CB}",
         "clip" => "\u{1F4CE}",
+        "snippets" => "\u{2702}\u{FE0F}",
         _ => "\u{1F517}",
     }
 }
@@ -190,6 +191,19 @@ impl AllCommandsConfig {
                 url: None,
                 fallback: None,
                 description: "Browse and search what you recently copied".to_string(),
+                editable_keyword: true,
+                deletable: false,
+            },
+        );
+        builtin.insert(
+            "snippets".to_string(),
+            BuiltinCommand {
+                keyword: "snip".to_string(),
+                cmd_type: "system".to_string(),
+                label: "Snippets".to_string(),
+                url: None,
+                fallback: None,
+                description: "Browse and search your text snippets".to_string(),
                 editable_keyword: true,
                 deletable: false,
             },
@@ -420,6 +434,51 @@ pub fn check_command(cfg: &AllCommandsConfig, query: &str) -> Option<CommandResu
     None
 }
 
+/// All text snippets matching `query` (empty query lists every snippet).
+/// Matches label, keyword and content, best matches first.
+pub fn search_snippets(cfg: &AllCommandsConfig, query: &str) -> Vec<CommandResult> {
+    let q = query.trim().to_lowercase();
+    let mut scored: Vec<(u8, &CustomCommand)> = cfg
+        .custom
+        .iter()
+        .filter(|c| c.cmd_type == "snippet")
+        .filter_map(|c| {
+            if q.is_empty() {
+                return Some((0, c));
+            }
+            let label = c.label.to_lowercase();
+            let keyword = normalize(&c.keyword);
+            let content = c.content.as_deref().unwrap_or("").to_lowercase();
+            let rank = if label.starts_with(&q) {
+                0
+            } else if keyword.starts_with(&q) {
+                1
+            } else if label.contains(&q) {
+                2
+            } else if keyword.contains(&q) || content.contains(&q) {
+                3
+            } else {
+                return None;
+            };
+            Some((rank, c))
+        })
+        .collect();
+    // Stable sort keeps the user's own ordering within a rank.
+    scored.sort_by_key(|(rank, _)| *rank);
+    scored
+        .into_iter()
+        .map(|(_, c)| CommandResult {
+            id: c.id.clone(),
+            kind: "snippet".to_string(),
+            label: c.label.clone(),
+            icon: custom_icon("snippet").to_string(),
+            query: String::new(),
+            url: None,
+            content: Some(c.content.clone().unwrap_or_default()),
+        })
+        .collect()
+}
+
 /// Returns the (trimmed) argument if `query` invokes `keyword` exactly or as a
 /// `keyword <arg>` prefix; `None` otherwise.
 fn match_keyword<'a>(query_lower: &str, query_raw: &'a str, keyword: &str) -> Option<&'a str> {
@@ -497,4 +556,74 @@ pub fn match_prefixes(cfg: &AllCommandsConfig, query: &str) -> Vec<PrefixHint> {
         }
     }
     hints
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snippet(id: &str, keyword: &str, label: &str, content: &str) -> CustomCommand {
+        CustomCommand {
+            id: id.to_string(),
+            keyword: keyword.to_string(),
+            cmd_type: "snippet".to_string(),
+            label: label.to_string(),
+            url: None,
+            fallback: None,
+            content: Some(content.to_string()),
+            description: String::new(),
+        }
+    }
+
+    fn cfg() -> AllCommandsConfig {
+        let mut cfg = AllCommandsConfig::defaults();
+        cfg.custom.push(snippet("1", ";email", "Work Email", "me@work.com"));
+        cfg.custom.push(snippet("2", ";addr", "Home Address", "1 Main St"));
+        cfg.custom.push(snippet("3", ";sig", "Email Signature", "Best, Me"));
+        cfg.custom.push(CustomCommand {
+            id: "4".to_string(),
+            keyword: "gt".to_string(),
+            cmd_type: "url".to_string(),
+            label: "Email Provider".to_string(),
+            url: Some("https://example.com".to_string()),
+            fallback: None,
+            content: None,
+            description: String::new(),
+        });
+        cfg
+    }
+
+    fn ids(q: &str) -> Vec<String> {
+        search_snippets(&cfg(), q).into_iter().map(|r| r.id).collect()
+    }
+
+    #[test]
+    fn empty_query_lists_only_snippets_in_order() {
+        assert_eq!(ids(""), vec!["1", "2", "3"]);
+    }
+
+    #[test]
+    fn matches_label_keyword_and_content() {
+        assert_eq!(ids("home"), vec!["2"]);
+        assert_eq!(ids("addr"), vec!["2"]);
+        assert_eq!(ids("main st"), vec!["2"]);
+    }
+
+    #[test]
+    fn best_matches_come_first() {
+        // "email" is a label prefix of "Email Signature" (best), and only a
+        // keyword match for "Work Email".
+        assert_eq!(ids("email"), vec!["3", "1"]);
+    }
+
+    #[test]
+    fn url_commands_are_never_returned() {
+        assert!(!ids("provider").contains(&"4".to_string()));
+        assert!(ids("zzz").is_empty());
+    }
+
+    #[test]
+    fn builtin_snippets_keyword_exists() {
+        assert_eq!(AllCommandsConfig::defaults().builtin["snippets"].keyword, "snip");
+    }
 }
