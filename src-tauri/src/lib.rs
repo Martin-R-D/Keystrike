@@ -9,6 +9,7 @@ mod notes;
 mod pins;
 mod quick_actions;
 mod searcher;
+mod theme;
 mod web_search;
 
 use std::collections::HashMap;
@@ -391,6 +392,18 @@ fn execute_snippet(content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_theme() -> theme::ThemeConfig {
+    theme::load()
+}
+
+#[tauri::command]
+fn set_theme(theme: theme::ThemeConfig) -> Result<theme::ThemeConfig, String> {
+    let valid = theme::validate(&theme)?;
+    theme::save(&valid)?;
+    Ok(valid)
+}
+
+#[tauri::command]
 fn get_aliases(state: State<'_, AppState>) -> Vec<aliases::Alias> {
     state.aliases.lock().unwrap().clone()
 }
@@ -691,6 +704,8 @@ pub fn run() {
             get_notes,
             toggle_pin,
             get_pins,
+            get_theme,
+            set_theme,
             get_aliases,
             set_alias,
             remove_alias,

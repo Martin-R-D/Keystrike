@@ -334,7 +334,7 @@ function Settings() {
             }
           }}
           className="w-full rounded-md bg-black/30 px-2 py-1 font-mono text-sm text-white outline-none"
-          style={{ border: inlineError ? "1px solid #ef4444" : "1px solid #6366f1" }}
+          style={{ border: inlineError ? "1px solid #ef4444" : "1px solid var(--accent)" }}
         />
       );
     }
@@ -342,11 +342,11 @@ function Settings() {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden text-white" style={{ background: "#1a1a2e" }}>
+    <div className="flex h-screen w-screen overflow-hidden text-white" style={{ background: "var(--bg-settings)" }}>
       {/* Sidebar */}
       <aside
         className="flex w-48 shrink-0 flex-col gap-1 p-3"
-        style={{ background: "#15151f", borderRight: "1px solid rgba(255,255,255,0.06)" }}
+        style={{ background: "var(--bg-sidebar)", borderRight: "1px solid rgba(var(--fg-rgb), 0.06)" }}
       >
         <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
           Settings
@@ -357,7 +357,7 @@ function Settings() {
             type="button"
             onClick={() => setTab(t)}
             className={`flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm ${tab === t ? "font-medium text-white" : "text-gray-400 hover:bg-white/5"}`}
-            style={tab === t ? { background: "rgba(99, 102, 241, 0.18)", borderLeft: "2px solid #6366f1" } : { borderLeft: "2px solid transparent" }}
+            style={tab === t ? { background: "rgba(var(--accent-rgb), 0.18)", borderLeft: "2px solid var(--accent)" } : { borderLeft: "2px solid transparent" }}
           >
             {t === "commands" ? "Commands" : "General"}
           </button>
@@ -377,7 +377,7 @@ function Settings() {
           </div>
           <button
             type="button"
-            className="shrink-0 rounded-lg bg-indigo-500 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-400"
+            className="shrink-0 rounded-lg bg-indigo-500 px-3.5 py-2 text-sm font-medium text-on-accent transition-colors hover:bg-indigo-400"
             onClick={openCreate}
           >
             + Add Command
@@ -388,10 +388,10 @@ function Settings() {
         <h2 className="mt-7 text-xs font-semibold uppercase tracking-wider text-gray-500">
           Built-in Commands
         </h2>
-        <div className="mt-3 overflow-hidden rounded-xl" style={{ border: "1px solid rgba(255,255,255,0.07)" }}>
+        <div className="mt-3 overflow-hidden rounded-xl" style={{ border: "1px solid rgba(var(--fg-rgb), 0.07)" }}>
           <div
             className="grid items-center gap-4 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500"
-            style={{ gridTemplateColumns: GRID, background: "rgba(255,255,255,0.03)" }}
+            style={{ gridTemplateColumns: GRID, background: "rgba(var(--fg-rgb), 0.03)" }}
           >
             <div>Command</div>
             <div>Description</div>
@@ -408,7 +408,7 @@ function Settings() {
                 <div
                   key={b.id}
                   className={`settings-row ${isSaved ? "flash-saved" : ""}`}
-                  style={{ borderTop: i === 0 ? "none" : "1px solid rgba(255,255,255,0.05)" }}
+                  style={{ borderTop: i === 0 ? "none" : "1px solid rgba(var(--fg-rgb), 0.05)" }}
                 >
                   <div className="grid items-center gap-4 px-4 py-3 text-sm" style={{ gridTemplateColumns: GRID }}>
                     <div className="min-w-0">{renderKeywordCell(b.id, cmd.keyword)}</div>
@@ -447,7 +447,7 @@ function Settings() {
             <div
               key={s.name}
               className="settings-row"
-              style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}
+              style={{ borderTop: "1px solid rgba(var(--fg-rgb), 0.05)" }}
             >
               <div className="grid items-center gap-4 px-4 py-3 text-sm" style={{ gridTemplateColumns: GRID }}>
                 <div className="font-mono font-medium text-gray-400">{s.name}</div>
@@ -465,10 +465,10 @@ function Settings() {
         </h2>
 
         {config && config.custom.length > 0 ? (
-          <div className="mt-3 overflow-hidden rounded-xl" style={{ border: "1px solid rgba(255,255,255,0.07)" }}>
+          <div className="mt-3 overflow-hidden rounded-xl" style={{ border: "1px solid rgba(var(--fg-rgb), 0.07)" }}>
             <div
               className="grid items-center gap-4 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500"
-              style={{ gridTemplateColumns: GRID, background: "rgba(255,255,255,0.03)" }}
+              style={{ gridTemplateColumns: GRID, background: "rgba(var(--fg-rgb), 0.03)" }}
             >
               <div>Command</div>
               <div>Label</div>
@@ -476,14 +476,14 @@ function Settings() {
               <div />
             </div>
             {config.custom.map((cmd, i) => (
-              <div key={cmd.id} className="settings-row" style={{ borderTop: i === 0 ? "none" : "1px solid rgba(255,255,255,0.05)" }}>
+              <div key={cmd.id} className="settings-row" style={{ borderTop: i === 0 ? "none" : "1px solid rgba(var(--fg-rgb), 0.05)" }}>
                 <div className="grid items-center gap-4 px-4 py-3 text-sm" style={{ gridTemplateColumns: GRID }}>
                   <div className="min-w-0 font-mono font-medium text-indigo-400">{cmd.keyword}</div>
                   <div className="flex min-w-0 items-center gap-2 text-gray-200">
                     <span className="truncate">{cmd.label}</span>
                     <span
                       className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-                      style={{ background: "rgba(99,102,241,0.18)", color: "#a5b4fc" }}
+                      style={{ background: "rgba(var(--accent-rgb), 0.18)", color: "var(--accent-text)" }}
                     >
                       {cmd.type === "snippet" ? "Snippet" : "URL"}
                     </span>
@@ -508,7 +508,7 @@ function Settings() {
         ) : (
           <div
             className="mt-3 flex flex-col items-center justify-center gap-2 rounded-xl px-6 py-10 text-center"
-            style={{ border: "1px dashed rgba(255,255,255,0.12)" }}
+            style={{ border: "1px dashed rgba(var(--fg-rgb), 0.12)" }}
           >
             <svg width={28} height={28} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} className="text-gray-600">
               <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -541,7 +541,7 @@ function Settings() {
         >
           <div
             className="w-[440px] max-h-full overflow-y-auto rounded-xl p-5"
-            style={{ background: "#1f1f2e", border: "1px solid rgba(255,255,255,0.1)" }}
+            style={{ background: "var(--bg-modal)", border: "1px solid rgba(var(--fg-rgb), 0.1)" }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-base font-semibold text-white">
@@ -560,7 +560,7 @@ function Settings() {
               placeholder="e.g., gt or ;email"
               onChange={(e) => setForm((f) => ({ ...f, keyword: e.target.value }))}
               className="mt-1 w-full rounded-md bg-black/30 px-3 py-2 font-mono text-sm text-white outline-none placeholder:text-gray-600"
-              style={{ border: liveKeywordError ? "1px solid #ef4444" : "1px solid rgba(255,255,255,0.12)" }}
+              style={{ border: liveKeywordError ? "1px solid #ef4444" : "1px solid rgba(var(--fg-rgb), 0.12)" }}
             />
             {liveKeywordError && <div className="mt-1 text-xs font-medium text-red-400">{liveKeywordError}</div>}
 
@@ -575,8 +575,8 @@ function Settings() {
                   className="flex-1 rounded-md py-2 text-sm font-medium transition-colors"
                   style={
                     form.type === t
-                      ? { background: "rgba(99,102,241,0.22)", border: "1px solid #6366f1", color: "#fff" }
-                      : { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", color: "#9ca3af" }
+                      ? { background: "rgba(var(--accent-rgb), 0.22)", border: "1px solid var(--accent)", color: "#fff" }
+                      : { background: "rgba(var(--fg-rgb), 0.04)", border: "1px solid rgba(var(--fg-rgb), 0.1)", color: "var(--text-muted)" }
                   }
                 >
                   {t === "url" ? "URL" : "Text Snippet"}
@@ -592,7 +592,7 @@ function Settings() {
               placeholder={form.type === "url" ? "e.g., Open GitHub" : "e.g., My Email"}
               onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
               className="mt-1 w-full rounded-md bg-black/30 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-600"
-              style={{ border: "1px solid rgba(255,255,255,0.12)" }}
+              style={{ border: "1px solid rgba(var(--fg-rgb), 0.12)" }}
             />
 
             {form.type === "url" ? (
@@ -605,7 +605,7 @@ function Settings() {
                   placeholder="e.g., https://github.com or https://github.com/search?q={query}"
                   onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
                   className="mt-1 w-full rounded-md bg-black/30 px-3 py-2 font-mono text-xs text-white outline-none placeholder:text-gray-600"
-                  style={{ border: "1px solid rgba(255,255,255,0.12)" }}
+                  style={{ border: "1px solid rgba(var(--fg-rgb), 0.12)" }}
                 />
                 <p className="mt-1 text-[11px] text-gray-500">
                   Use <span className="font-mono text-gray-400">{"{query}"}</span> to make it a search command. Whatever you type after the keyword will replace <span className="font-mono text-gray-400">{"{query}"}</span>.
@@ -623,7 +623,7 @@ function Settings() {
                       placeholder="e.g., https://github.com (opens when no query is given)"
                       onChange={(e) => setForm((f) => ({ ...f, fallback: e.target.value }))}
                       className="mt-1 w-full rounded-md bg-black/30 px-3 py-2 font-mono text-xs text-white outline-none placeholder:text-gray-600"
-                      style={{ border: "1px solid rgba(255,255,255,0.12)" }}
+                      style={{ border: "1px solid rgba(var(--fg-rgb), 0.12)" }}
                     />
                   </>
                 )}
@@ -638,7 +638,7 @@ function Settings() {
                   placeholder="e.g., john.smith@gmail.com"
                   onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
                   className="mt-1 w-full resize-none rounded-md bg-black/30 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-600"
-                  style={{ border: "1px solid rgba(255,255,255,0.12)" }}
+                  style={{ border: "1px solid rgba(var(--fg-rgb), 0.12)" }}
                 />
                 <p className="mt-1 text-[11px] text-gray-500">
                   This text will be copied to your clipboard for 1 minute, then automatically cleared.
@@ -659,8 +659,8 @@ function Settings() {
               <button
                 type="button"
                 disabled={!canSave}
-                className="rounded-md px-3.5 py-1.5 text-sm font-medium text-white transition-colors"
-                style={canSave ? { background: "#6366f1" } : { background: "rgba(99,102,241,0.35)", cursor: "not-allowed" }}
+                className="rounded-md px-3.5 py-1.5 text-sm font-medium text-on-accent transition-colors"
+                style={canSave ? { background: "var(--accent)" } : { background: "rgba(var(--accent-rgb), 0.35)", cursor: "not-allowed" }}
                 onClick={saveModal}
               >
                 Save
@@ -673,14 +673,14 @@ function Settings() {
       {/* Delete confirmation */}
       {deleteConfirmId && (
         <div className="absolute inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.55)" }} onClick={() => setDeleteConfirmId(null)}>
-          <div className="w-80 rounded-xl p-5" style={{ background: "#1f1f2e", border: "1px solid rgba(255,255,255,0.1)" }} onClick={(e) => e.stopPropagation()}>
+          <div className="w-80 rounded-xl p-5" style={{ background: "var(--bg-modal)", border: "1px solid rgba(var(--fg-rgb), 0.1)" }} onClick={(e) => e.stopPropagation()}>
             <div className="text-sm font-semibold text-white">Delete this command?</div>
             <p className="mt-2 text-sm text-gray-400">This cannot be undone.</p>
             <div className="mt-5 flex justify-end gap-2">
               <button type="button" className="rounded-md px-3 py-1.5 text-sm text-gray-300 transition-colors hover:bg-white/10" onClick={() => setDeleteConfirmId(null)}>
                 Cancel
               </button>
-              <button type="button" className="rounded-md bg-red-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-red-400" onClick={() => doDelete(deleteConfirmId)}>
+              <button type="button" className="rounded-md bg-red-500 px-3 py-1.5 text-sm font-medium text-on-accent transition-colors hover:bg-red-400" onClick={() => doDelete(deleteConfirmId)}>
                 Delete
               </button>
             </div>
@@ -691,14 +691,14 @@ function Settings() {
       {/* Reset confirmation */}
       {showResetConfirm && (
         <div className="absolute inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.55)" }} onClick={() => setShowResetConfirm(false)}>
-          <div className="w-80 rounded-xl p-5" style={{ background: "#1f1f2e", border: "1px solid rgba(255,255,255,0.1)" }} onClick={(e) => e.stopPropagation()}>
+          <div className="w-80 rounded-xl p-5" style={{ background: "var(--bg-modal)", border: "1px solid rgba(var(--fg-rgb), 0.1)" }} onClick={(e) => e.stopPropagation()}>
             <div className="text-sm font-semibold text-white">Reset commands</div>
             <p className="mt-2 text-sm text-gray-400">Reset all commands to their default keywords?</p>
             <div className="mt-5 flex justify-end gap-2">
               <button type="button" className="rounded-md px-3 py-1.5 text-sm text-gray-300 transition-colors hover:bg-white/10" onClick={() => setShowResetConfirm(false)}>
                 Cancel
               </button>
-              <button type="button" className="rounded-md bg-indigo-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-400" onClick={doReset}>
+              <button type="button" className="rounded-md bg-indigo-500 px-3 py-1.5 text-sm font-medium text-on-accent transition-colors hover:bg-indigo-400" onClick={doReset}>
                 Reset
               </button>
             </div>

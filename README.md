@@ -88,6 +88,10 @@ Create your own commands from the Settings dashboard — two types:
 
 Use the `/close` command to find and terminate running applications. Type `/close chrome`, select the process from the fuzzy-matched list, and press **Enter** to terminate it. System processes are filtered out automatically.
 
+### Themes
+
+Pick **Dark**, **Light**, or **System** and an accent color in **Settings → General → Appearance**. Changes apply immediately.
+
 ### App Aliases
 
 Give any app a short alias in **Settings → General → App Aliases**. Typing the alias exactly (for example `ff`) puts that app at the top of the results.
@@ -142,6 +146,7 @@ Keystrike stores its data in `%USERPROFILE%\.keystrike\`:
 | `commands.json` | Stores your customized keywords and custom commands |
 | `hotkey.json` | Stores your global hotkey |
 | `aliases.json` | Stores your app aliases |
+| `theme.json` | Stores your theme mode and accent color |
 | `config.json` | Stores first-launch flag and configuration |
 
 ---

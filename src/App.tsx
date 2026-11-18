@@ -607,7 +607,7 @@ function App() {
     <div
       className="flex w-screen flex-col"
       style={{
-        border: "1px solid rgba(255,255,255,0.08)",
+        border: "1px solid rgba(var(--fg-rgb), 0.08)",
         borderRadius: 16,
       }}
     >
@@ -617,7 +617,7 @@ function App() {
         className="flex shrink-0 items-center gap-3 px-5"
         style={{
           height: BAR_HEIGHT,
-          background: "rgba(24, 24, 32, 0.95)",
+          background: "var(--panel-bg)",
           borderRadius: hasResults ? "15px 15px 0 0" : 15,
           backdropFilter: "blur(24px)",
           WebkitBackdropFilter: "blur(24px)",
@@ -684,7 +684,7 @@ function App() {
       {hasResults && (
         <div
           style={{
-            background: "rgba(24, 24, 32, 0.95)",
+            background: "var(--panel-bg)",
             borderRadius: "0 0 15px 15px",
             backdropFilter: "blur(24px)",
             WebkitBackdropFilter: "blur(24px)",
@@ -709,8 +709,8 @@ function App() {
                     style={{
                       animationDelay: `${index * 20}ms`,
                       height: EVAL_ROW_HEIGHT,
-                      background: isSelected ? "rgba(99, 102, 241, 0.12)" : "rgba(99, 102, 241, 0.04)",
-                      borderLeft: isSelected ? "2px solid #6366f1" : "2px solid transparent",
+                      background: isSelected ? "rgba(var(--accent-rgb), 0.12)" : "rgba(var(--accent-rgb), 0.04)",
+                      borderLeft: isSelected ? "2px solid var(--accent)" : "2px solid transparent",
                       borderRadius: radius,
                       transition: "background 100ms ease",
                     }}
@@ -786,7 +786,7 @@ function App() {
                     style={{
                       animationDelay: `${index * 20}ms`,
                       height: 52,
-                      background: isSelected ? "rgba(255,255,255,0.07)" : "transparent",
+                      background: isSelected ? "rgba(var(--fg-rgb), 0.07)" : "transparent",
                       borderLeft: isSelected ? "2px solid #eab308" : "2px solid transparent",
                       borderRadius: radius,
                       transition: "background 100ms ease",
@@ -819,8 +819,8 @@ function App() {
                     style={{
                       animationDelay: `${index * 20}ms`,
                       height: 68,
-                      background: isSelected ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.02)",
-                      borderLeft: isSelected ? "2px solid #6366f1" : "2px solid transparent",
+                      background: isSelected ? "rgba(var(--fg-rgb), 0.06)" : "rgba(var(--fg-rgb), 0.02)",
+                      borderLeft: isSelected ? "2px solid var(--accent)" : "2px solid transparent",
                       borderRadius: radius,
                       transition: "background 100ms ease",
                     }}
@@ -835,7 +835,7 @@ function App() {
                           borderRadius: 8,
                           background: result.meta,
                           flexShrink: 0,
-                          border: "1px solid rgba(255,255,255,0.15)",
+                          border: "1px solid rgba(var(--fg-rgb), 0.15)",
                           boxShadow: `0 0 12px 2px ${result.meta}55`,
                         }}
                       />
@@ -863,8 +863,8 @@ function App() {
                     style={{
                       animationDelay: `${index * 20}ms`,
                       height: HINT_ROW_HEIGHT,
-                      background: isSelected ? "rgba(255,255,255,0.05)" : "transparent",
-                      borderLeft: isSelected ? "2px solid #6366f1" : "2px solid transparent",
+                      background: isSelected ? "rgba(var(--fg-rgb), 0.05)" : "transparent",
+                      borderLeft: isSelected ? "2px solid var(--accent)" : "2px solid transparent",
                       borderRadius: radius,
                       transition: "background 100ms ease",
                     }}
@@ -892,8 +892,8 @@ function App() {
                   style={{
                     animationDelay: `${index * 20}ms`,
                     height: ROW_HEIGHT,
-                    background: isSelected ? "rgba(255,255,255,0.07)" : "transparent",
-                    borderLeft: isSelected ? "2px solid #6366f1" : "2px solid transparent",
+                    background: isSelected ? "rgba(var(--fg-rgb), 0.07)" : "transparent",
+                    borderLeft: isSelected ? "2px solid var(--accent)" : "2px solid transparent",
                     borderRadius: radius,
                     transition: "background 100ms ease",
                   }}
@@ -950,7 +950,7 @@ function App() {
         <div
           className="absolute inset-0 z-40 flex flex-col items-center justify-center"
           style={{
-            background: "rgba(24, 24, 32, 0.98)",
+            background: "var(--panel-bg-solid)",
             borderRadius: 15,
           }}
         >
@@ -963,7 +963,7 @@ function App() {
               Press <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-gray-200">{hotkey}</span> anytime to launch.
             </div>
             <button
-              className="rounded-lg bg-indigo-500 px-5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-400"
+              className="rounded-lg bg-indigo-500 px-5 py-1.5 text-sm font-medium text-on-accent transition-colors hover:bg-indigo-400"
               onClick={async () => {
                 invoke("mark_first_launch_done").catch(console.error);
                 setShowWelcome(false);
