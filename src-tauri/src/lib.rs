@@ -13,6 +13,7 @@ mod quick_actions;
 mod searcher;
 mod theme;
 mod web_search;
+mod window_switcher;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -449,6 +450,16 @@ fn set_clipboard_enabled(enabled: bool, state: State<'_, ClipboardState>) -> Res
 }
 
 #[tauri::command]
+fn search_windows(query: String) -> Vec<window_switcher::WindowInfo> {
+    window_switcher::filter(window_switcher::list(), &query, 8)
+}
+
+#[tauri::command]
+fn focus_window(hwnd: i64) -> Result<(), String> {
+    window_switcher::focus(hwnd)
+}
+
+#[tauri::command]
 fn get_theme() -> theme::ThemeConfig {
     theme::load()
 }
@@ -789,6 +800,8 @@ pub fn run() {
             clear_clipboard_history,
             get_clipboard_enabled,
             set_clipboard_enabled,
+            search_windows,
+            focus_window,
             get_theme,
             set_theme,
             get_aliases,
