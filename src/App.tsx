@@ -5,7 +5,7 @@ import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 
 const appWindow = getCurrentWebviewWindow();
 
-type ResultKind = "app" | "command" | "process" | "calc" | "convert" | "color" | "websearch" | "prefix-hint" | "snippet" | "note-save" | "note-item" | "clip-item" | "window" | "file" | "quick-action";
+type ResultKind = "app" | "command" | "process" | "calc" | "convert" | "color" | "websearch" | "prefix-hint" | "snippet" | "note-save" | "note-item" | "clip-item" | "window" | "file" | "script-item" | "quick-action";
 
 interface DisplayResult {
   id: number;
@@ -103,6 +103,18 @@ interface FileHit {
   is_dir: boolean;
 }
 
+interface ScriptInfo {
+  keyword: string;
+  file_name: string;
+}
+
+interface ScriptResultItem {
+  title: string;
+  subtitle: string;
+  copy: string;
+  url: string | null;
+}
+
 interface IndexStatus {
   ready: boolean;
   count: number;
@@ -170,6 +182,7 @@ function App() {
   const [snipKeyword, setSnipKeyword] = useState("snip");
   const [winKeyword, setWinKeyword] = useState("win");
   const [fileKeyword, setFileKeyword] = useState("file");
+  const [scripts, setScripts] = useState<ScriptInfo[]>([]);
   const [hotkey, setHotkey] = useState("Alt+Space");
   // Id of a destructive quick action waiting for a second Enter to confirm.
   const [pendingConfirm, setPendingConfirm] = useState<string | null>(null);
@@ -227,6 +240,9 @@ function App() {
       if (cfg.builtin?.snippets?.keyword) setSnipKeyword(cfg.builtin.snippets.keyword);
       if (cfg.builtin?.windows?.keyword) setWinKeyword(cfg.builtin.windows.keyword);
       if (cfg.builtin?.files?.keyword) setFileKeyword(cfg.builtin.files.keyword);
+    } catch {}
+    try {
+      setScripts(await invoke<ScriptInfo[]>("get_scripts"));
     } catch {}
   }, []);
 
@@ -300,14 +316,52 @@ function App() {
     const winMode = ql === winLower || ql.startsWith(winLower + " ");
     const fileLower = fileKeyword.toLowerCase();
     const fileMode = ql === fileLower || ql.startsWith(fileLower + " ");
+    const scriptWord = ql.split(" ")[0];
+    const scriptMatch = scripts.find((sc) => sc.keyword === scriptWord);
+    const scriptMode = !!scriptMatch && (ql === scriptWord || ql.startsWith(scriptWord + " "));
 
-    if (!indexReady && !query.startsWith("/") && !closeArgMode && !closeExact && !noteArgMode && !notesExact && !clipMode && !snipMode && !winMode && !fileMode) return;
+    if (!indexReady && !query.startsWith("/") && !closeArgMode && !closeExact && !noteArgMode && !notesExact && !clipMode && !snipMode && !winMode && !fileMode && !scriptMode) return;
 
+    let cancelled = false;
     debounceRef.current = setTimeout(async () => {
       try {
         let items: DisplayResult[] = [];
 
-        if (fileMode) {
+        if (scriptMode && scriptMatch) {
+          const arg = query.slice(scriptWord.length).trim();
+          try {
+            const out = await invoke<ScriptResultItem[]>("run_script", {
+              keyword: scriptMatch.keyword,
+              args: arg,
+            });
+            items = out.length === 0
+              ? [{
+                  id: -90,
+                  name: "Script returned no output",
+                  detail: scriptMatch.file_name,
+                  kind: "note-item" as ResultKind,
+                  tag: "Script",
+                }]
+              : out.map((r, i) => ({
+                  id: -300 - i,
+                  name: r.title,
+                  detail: r.subtitle,
+                  kind: "script-item" as ResultKind,
+                  copyValue: r.copy,
+                  url: r.url ?? undefined,
+                  icon: "⚙️",
+                  tag: "Script",
+                }));
+          } catch (err) {
+            items = [{
+              id: -91,
+              name: "Script failed",
+              detail: String(err),
+              kind: "note-item",
+              tag: "Script",
+            }];
+          }
+        } else if (fileMode) {
           const arg = query.slice(fileKeyword.length).trim();
           if (!arg) {
             items = [{
@@ -594,18 +648,20 @@ function App() {
           }
         }
 
+        if (cancelled) return;
         setResults(items);
         setSelectedIndex(0);
         resizeWindow(items);
       } catch (e) {
         console.error("Search failed:", e);
       }
-    }, 30);
+    }, scriptMode ? 250 : 30);
 
     return () => {
+      cancelled = true;
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, resizeWindow, indexReady, closeKeyword, noteKeyword, notesKeyword, clipKeyword, snipKeyword, winKeyword, fileKeyword]);
+  }, [query, resizeWindow, indexReady, closeKeyword, noteKeyword, notesKeyword, clipKeyword, snipKeyword, winKeyword, fileKeyword, scripts]);
 
   const handleAction = useCallback(
     (item: DisplayResult) => {
@@ -659,6 +715,20 @@ function App() {
         invoke("run_quick_action", { id: actionId })
           .then(() => hideWindow())
           .catch((err) => showToast(`Failed: ${err}`));
+      } else if (item.kind === "script-item") {
+        if (item.url) {
+          invoke("open_url", { url: item.url })
+            .then(() => hideWindow())
+            .catch(console.error);
+        } else if (item.copyValue) {
+          navigator.clipboard
+            .writeText(item.copyValue)
+            .then(() => {
+              showToast("Copied to clipboard");
+              hideWindow();
+            })
+            .catch(console.error);
+        }
       } else if (item.kind === "file") {
         invoke("open_path", { path: item.meta })
           .then(() => hideWindow())
@@ -1077,7 +1147,7 @@ function App() {
                       {result.kind === "command" && (
                         <span className="mr-2 text-red-400 text-xs">&#x2715;</span>
                       )}
-                      {(result.kind === "websearch" || result.kind === "snippet" || result.kind === "quick-action" || result.kind === "file") && (
+                      {(result.kind === "websearch" || result.kind === "snippet" || result.kind === "quick-action" || result.kind === "file" || result.kind === "script-item") && (
                         <span className="mr-2">{result.icon}</span>
                       )}
                       {result.name}
@@ -1098,6 +1168,8 @@ function App() {
                             ? "⏎ Open"
                             : result.kind === "snippet"
                               ? "⏎ Copy"
+                              : result.kind === "script-item"
+                                ? (result.url ? "⏎ Open" : "⏎ Copy")
                               : result.kind === "file"
                                 ? "^⏎ Show in folder  ⏎ Open"
                               : result.kind === "window"
