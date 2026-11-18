@@ -58,6 +58,10 @@ Type a conversion as `{value} {unit} to {unit}` (you can use `to` or `in`).
 
 Supports **weight, temperature, distance, data, and time**. Press **Enter** to copy the result.
 
+### File Search
+
+Type `file report` to search file and folder names in your Desktop, Documents, Downloads, Pictures, Videos and Music folders. Every word must match; exact and prefix matches rank first. Press **Enter** to open, or **Ctrl+Enter** to show it in Explorer. The index is built in the background at startup and refreshed with **Reindex Apps** in the tray menu. Hidden items and folders like `node_modules` are skipped.
+
 ### Window Switcher
 
 Type `win` to list your open windows, or `win firefox` to filter them by title. Press **Enter** to bring the window to the front (minimised windows are restored). Keystrike's own windows are never listed.

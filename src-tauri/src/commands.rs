@@ -115,6 +115,7 @@ fn builtin_icon(id: &str) -> &'static str {
         "clip" => "\u{1F4CE}",
         "snippets" => "\u{2702}\u{FE0F}",
         "windows" => "\u{1F5A5}\u{FE0F}",
+        "files" => "\u{1F4C4}",
         _ => "\u{1F517}",
     }
 }
@@ -218,6 +219,19 @@ impl AllCommandsConfig {
                 url: None,
                 fallback: None,
                 description: "Jump to any open window by title".to_string(),
+                editable_keyword: true,
+                deletable: false,
+            },
+        );
+        builtin.insert(
+            "files".to_string(),
+            BuiltinCommand {
+                keyword: "file".to_string(),
+                cmd_type: "system".to_string(),
+                label: "Find Files".to_string(),
+                url: None,
+                fallback: None,
+                description: "Search files and folders in your user folders".to_string(),
                 editable_keyword: true,
                 deletable: false,
             },
