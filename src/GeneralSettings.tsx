@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { ACCENT_PRESETS, DEFAULT_THEME, saveTheme, ThemeConfig, ThemeMode } from "./theme";
 
 const MODIFIER_CODES = new Set([
   "ControlLeft", "ControlRight", "AltLeft", "AltRight",
@@ -82,7 +83,7 @@ function HotkeySection() {
       <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Hotkey</h2>
       <div
         className="mt-3 flex items-center justify-between gap-4 rounded-xl px-4 py-3"
-        style={{ border: "1px solid rgba(255,255,255,0.07)" }}
+        style={{ border: "1px solid rgba(var(--fg-rgb), 0.07)" }}
       >
         <div>
           <div className="text-sm text-gray-200">Open Keystrike</div>
@@ -101,7 +102,7 @@ function HotkeySection() {
             onKeyDown={onKeyDown}
             onBlur={() => setRecording(false)}
             className="min-w-[140px] rounded-md bg-black/30 px-3 py-1.5 text-center font-mono text-sm text-white outline-none"
-            style={{ border: recording ? "1px solid #6366f1" : "1px solid rgba(255,255,255,0.12)" }}
+            style={{ border: recording ? "1px solid var(--accent)" : "1px solid rgba(var(--fg-rgb), 0.12)" }}
           >
             {recording ? "Press keys..." : pending ?? hotkey}
           </button>
@@ -183,7 +184,7 @@ function AliasesSection() {
     load();
   };
 
-  const inputStyle = { border: "1px solid rgba(255,255,255,0.12)" };
+  const inputStyle = { border: "1px solid rgba(var(--fg-rgb), 0.12)" };
 
   return (
     <section>
@@ -191,7 +192,7 @@ function AliasesSection() {
       <p className="mt-1 text-xs text-gray-500">
         Type a short alias in the search bar to jump straight to an app, e.g. <span className="font-mono text-gray-400">ff</span> for Firefox.
       </p>
-      <div className="mt-3 rounded-xl p-4" style={{ border: "1px solid rgba(255,255,255,0.07)" }}>
+      <div className="mt-3 rounded-xl p-4" style={{ border: "1px solid rgba(var(--fg-rgb), 0.07)" }}>
         <div className="flex items-start gap-2">
           <input
             type="text"
@@ -229,7 +230,7 @@ function AliasesSection() {
             {hits.length > 0 && (
               <div
                 className="absolute left-0 right-0 z-10 mt-1 overflow-hidden rounded-md"
-                style={{ background: "#25253a", border: "1px solid rgba(255,255,255,0.12)" }}
+                style={{ background: "var(--bg-popover)", border: "1px solid rgba(var(--fg-rgb), 0.12)" }}
               >
                 {hits.map((h) => (
                   <button
@@ -251,8 +252,8 @@ function AliasesSection() {
             type="button"
             disabled={!canAdd}
             onClick={add}
-            className="rounded-md px-3.5 py-1.5 text-sm font-medium text-white transition-colors"
-            style={canAdd ? { background: "#6366f1" } : { background: "rgba(99,102,241,0.35)", cursor: "not-allowed" }}
+            className="rounded-md px-3.5 py-1.5 text-sm font-medium text-on-accent transition-colors"
+            style={canAdd ? { background: "var(--accent)" } : { background: "rgba(var(--accent-rgb), 0.35)", cursor: "not-allowed" }}
           >
             Add
           </button>
@@ -265,7 +266,7 @@ function AliasesSection() {
               <div
                 key={a.alias}
                 className="flex items-center justify-between py-2 text-sm"
-                style={{ borderTop: i === 0 ? "none" : "1px solid rgba(255,255,255,0.05)" }}
+                style={{ borderTop: i === 0 ? "none" : "1px solid rgba(var(--fg-rgb), 0.05)" }}
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <span className="w-28 shrink-0 font-mono font-medium text-indigo-400">{a.alias}</span>
@@ -287,6 +288,81 @@ function AliasesSection() {
   );
 }
 
+const MODES: { value: ThemeMode; label: string }[] = [
+  { value: "dark", label: "Dark" },
+  { value: "light", label: "Light" },
+  { value: "system", label: "System" },
+];
+
+function AppearanceSection() {
+  const [theme, setTheme] = useState<ThemeConfig>(DEFAULT_THEME);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    invoke<ThemeConfig>("get_theme").then(setTheme).catch(console.error);
+  }, []);
+
+  const update = async (next: ThemeConfig) => {
+    const previous = theme;
+    setTheme(next);
+    try {
+      setTheme(await saveTheme(next));
+      setError(null);
+    } catch (e) {
+      setTheme(previous);
+      setError(String(e));
+    }
+  };
+
+  return (
+    <section>
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Appearance</h2>
+      <div className="mt-3 rounded-xl px-4 py-3" style={{ border: "1px solid rgba(var(--fg-rgb), 0.07)" }}>
+        <div className="flex items-center justify-between gap-4">
+          <div className="text-sm text-gray-200">Theme</div>
+          <div className="flex gap-2">
+            {MODES.map((m) => (
+              <button
+                key={m.value}
+                type="button"
+                onClick={() => update({ ...theme, mode: m.value })}
+                className="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+                style={
+                  theme.mode === m.value
+                    ? { background: "rgba(var(--accent-rgb), 0.22)", border: "1px solid var(--accent)" }
+                    : { background: "rgba(var(--fg-rgb), 0.04)", border: "1px solid rgba(var(--fg-rgb), 0.1)", color: "var(--text-muted)" }
+                }
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-4 flex items-center justify-between gap-4">
+          <div className="text-sm text-gray-200">Accent color</div>
+          <div className="flex items-center gap-2">
+            {ACCENT_PRESETS.map((a) => (
+              <button
+                key={a.value}
+                type="button"
+                title={a.name}
+                aria-label={a.name}
+                onClick={() => update({ ...theme, accent: a.value })}
+                className="h-6 w-6 rounded-full"
+                style={{
+                  background: a.value,
+                  border: theme.accent === a.value ? "2px solid rgba(var(--fg-rgb), 0.9)" : "2px solid transparent",
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+      {error && <div className="mt-2 text-xs font-medium text-red-400">{error}</div>}
+    </section>
+  );
+}
+
 function GeneralSettings() {
   return (
     <div>
@@ -294,6 +370,7 @@ function GeneralSettings() {
       <p className="mt-1 text-sm text-gray-400">Core preferences for Keystrike</p>
       <div className="mt-7 flex flex-col gap-7">
         <HotkeySection />
+        <AppearanceSection />
         <AliasesSection />
       </div>
     </div>
