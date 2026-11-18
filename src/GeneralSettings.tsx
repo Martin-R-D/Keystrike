@@ -363,6 +363,54 @@ function AppearanceSection() {
   );
 }
 
+function ClipboardSection() {
+  const [enabled, setEnabled] = useState(true);
+
+  useEffect(() => {
+    invoke<boolean>("get_clipboard_enabled").then(setEnabled).catch(console.error);
+  }, []);
+
+  const toggle = async () => {
+    const next = !enabled;
+    try {
+      await invoke("set_clipboard_enabled", { enabled: next });
+      setEnabled(next);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  return (
+    <section>
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Clipboard History</h2>
+      <div
+        className="mt-3 flex items-center justify-between gap-4 rounded-xl px-4 py-3"
+        style={{ border: "1px solid rgba(var(--fg-rgb), 0.07)" }}
+      >
+        <div>
+          <div className="text-sm text-gray-200">Remember recently copied text</div>
+          <div className="text-xs text-gray-500">
+            Type <span className="font-mono text-gray-400">clip</span> to browse it. Kept in memory only (last 50 items) and never saved to disk. Turning it off clears it.
+          </div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          onClick={toggle}
+          className="relative h-6 w-11 shrink-0 rounded-full transition-colors"
+          style={{ background: enabled ? "var(--accent)" : "rgba(var(--fg-rgb), 0.18)" }}
+        >
+          <span
+            className="absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all"
+            style={{ left: enabled ? 22 : 2 }}
+          />
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function GeneralSettings() {
   return (
     <div>
@@ -371,6 +419,7 @@ function GeneralSettings() {
       <div className="mt-7 flex flex-col gap-7">
         <HotkeySection />
         <AppearanceSection />
+        <ClipboardSection />
         <AliasesSection />
       </div>
     </div>
