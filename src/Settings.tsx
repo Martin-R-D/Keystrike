@@ -34,6 +34,7 @@ interface AllCommandsConfig {
 // Display order + fixed examples for the built-in commands.
 const BUILTIN_ORDER: { id: string; example: string }[] = [
   { id: "close", example: "/close chrome" },
+  { id: "clip", example: "clip invoice" },
   { id: "google", example: "g how to learn rust" },
   { id: "youtube", example: "yt lofi hip hop" },
   { id: "wikipedia", example: "wiki theory of relativity" },

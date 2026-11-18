@@ -5,7 +5,7 @@ import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 
 const appWindow = getCurrentWebviewWindow();
 
-type ResultKind = "app" | "command" | "process" | "calc" | "convert" | "color" | "websearch" | "prefix-hint" | "snippet" | "note-save" | "note-item" | "quick-action";
+type ResultKind = "app" | "command" | "process" | "calc" | "convert" | "color" | "websearch" | "prefix-hint" | "snippet" | "note-save" | "note-item" | "clip-item" | "quick-action";
 
 interface DisplayResult {
   id: number;
@@ -78,6 +78,20 @@ interface QuickAction {
   confirm: boolean;
 }
 
+interface ClipEntry {
+  id: number;
+  text: string;
+  copied_at: number;
+}
+
+function timeAgo(epochSecs: number): string {
+  const diff = Math.max(0, Math.floor(Date.now() / 1000) - epochSecs);
+  if (diff < 60) return "Just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
 interface IndexStatus {
   ready: boolean;
   count: number;
@@ -101,7 +115,7 @@ function rowHeight(kind: ResultKind): number {
   if (kind === "calc" || kind === "convert") return EVAL_ROW_HEIGHT;
   if (kind === "color") return 68;
   if (kind === "prefix-hint") return HINT_ROW_HEIGHT;
-  if (kind === "note-item") return 52;
+  if (kind === "note-item" || kind === "clip-item") return 52;
   return ROW_HEIGHT;
 }
 
@@ -141,6 +155,7 @@ function App() {
   const [closeKeyword, setCloseKeyword] = useState(DEFAULT_CLOSE_KEYWORD);
   const [noteKeyword, setNoteKeyword] = useState("note");
   const [notesKeyword, setNotesKeyword] = useState("notes");
+  const [clipKeyword, setClipKeyword] = useState("clip");
   const [hotkey, setHotkey] = useState("Alt+Space");
   // Id of a destructive quick action waiting for a second Enter to confirm.
   const [pendingConfirm, setPendingConfirm] = useState<string | null>(null);
@@ -194,6 +209,7 @@ function App() {
       if (cfg.builtin?.close?.keyword) setCloseKeyword(cfg.builtin.close.keyword);
       if (cfg.builtin?.note?.keyword) setNoteKeyword(cfg.builtin.note.keyword);
       if (cfg.builtin?.notes?.keyword) setNotesKeyword(cfg.builtin.notes.keyword);
+      if (cfg.builtin?.clip?.keyword) setClipKeyword(cfg.builtin.clip.keyword);
     } catch {}
   }, []);
 
@@ -259,14 +275,37 @@ function App() {
     const closeExact = ql === ckLower;
     const noteArgMode = ql.startsWith(noteKeyword.toLowerCase() + " ");
     const notesExact = ql === notesKeyword.toLowerCase();
+    const clipLower = clipKeyword.toLowerCase();
+    const clipMode = ql === clipLower || ql.startsWith(clipLower + " ");
 
-    if (!indexReady && !query.startsWith("/") && !closeArgMode && !closeExact && !noteArgMode && !notesExact) return;
+    if (!indexReady && !query.startsWith("/") && !closeArgMode && !closeExact && !noteArgMode && !notesExact && !clipMode) return;
 
     debounceRef.current = setTimeout(async () => {
       try {
         let items: DisplayResult[] = [];
 
-        if (noteArgMode) {
+        if (clipMode) {
+          const arg = query.slice(clipKeyword.length).trim();
+          const clips = await invoke<ClipEntry[]>("search_clipboard_history", { query: arg }).catch(() => []);
+          if (clips.length === 0) {
+            items = [{
+              id: -50,
+              name: arg ? "No matching clipboard entries" : "Clipboard history is empty",
+              detail: arg ? "Try a different search" : "Copy some text and it will show up here",
+              kind: "clip-item",
+              tag: "Clipboard",
+            }];
+          } else {
+            items = clips.slice(0, MAX_VISIBLE).map((c) => ({
+              id: c.id,
+              name: c.text.replace(/\s+/g, " ").trim().slice(0, 90),
+              detail: timeAgo(c.copied_at),
+              kind: "clip-item" as ResultKind,
+              copyValue: c.text,
+              tag: "Clipboard",
+            }));
+          }
+        } else if (noteArgMode) {
           const text = query.slice(noteKeyword.length + 1).trim();
           items = [{
             id: -30,
@@ -470,7 +509,7 @@ function App() {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, resizeWindow, indexReady, closeKeyword, noteKeyword, notesKeyword]);
+  }, [query, resizeWindow, indexReady, closeKeyword, noteKeyword, notesKeyword, clipKeyword]);
 
   const handleAction = useCallback(
     (item: DisplayResult) => {
@@ -489,7 +528,7 @@ function App() {
             hideWindow();
           })
           .catch(console.error);
-      } else if (item.kind === "note-item") {
+      } else if (item.kind === "note-item" || item.kind === "clip-item") {
         if (item.copyValue) {
           navigator.clipboard
             .writeText(item.copyValue)
@@ -544,6 +583,21 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Delete" && e.ctrlKey) {
+        const selected = results[selectedIndex];
+        if (selected?.kind === "clip-item" && selected.copyValue) {
+          e.preventDefault();
+          invoke("remove_clipboard_entry", { id: selected.id })
+            .then(() => {
+              setResults((prev) => prev.filter((r) => !(r.kind === "clip-item" && r.id === selected.id)));
+              setSelectedIndex((i) => Math.max(0, i - 1));
+              showToast("Removed from history");
+            })
+            .catch(console.error);
+        }
+        return;
+      }
+
       if (e.key === "p" && e.ctrlKey) {
         const selected = results[selectedIndex];
         if (selected?.kind === "app") {
@@ -778,7 +832,7 @@ function App() {
                 );
               }
 
-              if (result.kind === "note-item") {
+              if (result.kind === "note-item" || result.kind === "clip-item") {
                 return (
                   <div
                     key={`note-item-${result.id}`}
@@ -787,7 +841,7 @@ function App() {
                       animationDelay: `${index * 20}ms`,
                       height: 52,
                       background: isSelected ? "rgba(var(--fg-rgb), 0.07)" : "transparent",
-                      borderLeft: isSelected ? "2px solid #eab308" : "2px solid transparent",
+                      borderLeft: isSelected ? `2px solid ${result.kind === "clip-item" ? "var(--accent)" : "#eab308"}` : "2px solid transparent",
                       borderRadius: radius,
                       transition: "background 100ms ease",
                     }}
@@ -802,9 +856,11 @@ function App() {
                     </div>
                     <div className="shrink-0 ml-3">
                       {isSelected ? (
-                        <span className="text-[10px] text-gray-500 whitespace-nowrap">⏎ Copy</span>
+                        <span className="text-[10px] text-gray-500 whitespace-nowrap">
+                          {result.kind === "clip-item" && result.copyValue ? "^Del Remove  ⏎ Copy" : "⏎ Copy"}
+                        </span>
                       ) : (
-                        <span className="text-[10px] text-gray-600 whitespace-nowrap">Note</span>
+                        <span className="text-[10px] text-gray-600 whitespace-nowrap">{result.tag ?? "Note"}</span>
                       )}
                     </div>
                   </div>
