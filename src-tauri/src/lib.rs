@@ -6,6 +6,7 @@ mod hotkey;
 mod indexer;
 mod notes;
 mod pins;
+mod quick_actions;
 mod searcher;
 mod web_search;
 
@@ -368,6 +369,17 @@ fn execute_snippet(content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn search_quick_actions(query: String) -> Vec<quick_actions::QuickAction> {
+    quick_actions::search(&query)
+}
+
+#[tauri::command]
+fn run_quick_action(id: String) -> Result<(), String> {
+    eprintln!("[keystrike] Quick action: {}", id);
+    quick_actions::run(&id)
+}
+
+#[tauri::command]
 fn get_hotkey(current: State<'_, CurrentHotkey>) -> String {
     current.0.lock().unwrap().clone()
 }
@@ -620,6 +632,8 @@ pub fn run() {
             get_notes,
             toggle_pin,
             get_pins,
+            search_quick_actions,
+            run_quick_action,
             get_hotkey,
             set_hotkey,
             reset_hotkey,

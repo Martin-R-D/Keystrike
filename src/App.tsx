@@ -5,7 +5,7 @@ import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 
 const appWindow = getCurrentWebviewWindow();
 
-type ResultKind = "app" | "command" | "process" | "calc" | "convert" | "color" | "websearch" | "prefix-hint" | "snippet" | "note-save" | "note-item";
+type ResultKind = "app" | "command" | "process" | "calc" | "convert" | "color" | "websearch" | "prefix-hint" | "snippet" | "note-save" | "note-item" | "quick-action";
 
 interface DisplayResult {
   id: number;
@@ -18,6 +18,7 @@ interface DisplayResult {
   url?: string;
   tag?: string;
   isPinned?: boolean;
+  confirm?: boolean;
 }
 
 interface AppSearchResult {
@@ -67,6 +68,14 @@ interface PrefixHint {
   label: string;
   icon: string;
   kind: string;
+}
+
+interface QuickAction {
+  id: string;
+  label: string;
+  description: string;
+  icon: string;
+  confirm: boolean;
 }
 
 interface IndexStatus {
@@ -133,6 +142,8 @@ function App() {
   const [noteKeyword, setNoteKeyword] = useState("note");
   const [notesKeyword, setNotesKeyword] = useState("notes");
   const [hotkey, setHotkey] = useState("Alt+Space");
+  // Id of a destructive quick action waiting for a second Enter to confirm.
+  const [pendingConfirm, setPendingConfirm] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -238,6 +249,7 @@ function App() {
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    setPendingConfirm(null);
 
     const ck = closeKeyword;
     const ckLower = ck.toLowerCase();
@@ -352,11 +364,12 @@ function App() {
             });
           }
 
-          const [evalResult, cmdResult, appResults, prefixHints] = await Promise.all([
+          const [evalResult, cmdResult, appResults, prefixHints, quickActions] = await Promise.all([
             invoke<EvalResult | null>("evaluate_input", { query }).catch(() => null),
             invoke<CommandResult | null>("check_command", { query }).catch(() => null),
             invoke<AppSearchResult[]>("search_apps", { query }).catch(() => []),
             invoke<PrefixHint[]>("match_command_prefixes", { query }).catch(() => []),
+            invoke<QuickAction[]>("search_quick_actions", { query }).catch(() => []),
           ]);
 
           // 1. Command prefix match (URL or snippet) is the top result.
@@ -412,6 +425,20 @@ function App() {
               kind: "app" as ResultKind,
               tag: "App",
               isPinned: r.is_pinned,
+            })),
+          );
+
+          // 3b. System quick actions (lock, sleep, restart, ...).
+          items.push(
+            ...quickActions.map((a) => ({
+              id: -40,
+              name: a.label,
+              detail: a.description,
+              kind: "quick-action" as ResultKind,
+              icon: a.icon,
+              meta: a.id,
+              confirm: a.confirm,
+              tag: "System",
             })),
           );
 
@@ -486,6 +513,17 @@ function App() {
             setTimeout(() => hideWindow(), 1400);
           })
           .catch(console.error);
+      } else if (item.kind === "quick-action") {
+        const actionId = item.meta ?? "";
+        if (item.confirm && pendingConfirm !== actionId) {
+          setPendingConfirm(actionId);
+          showToast(`Press Enter again to confirm: ${item.name}`);
+          return;
+        }
+        setPendingConfirm(null);
+        invoke("run_quick_action", { id: actionId })
+          .then(() => hideWindow())
+          .catch((err) => showToast(`Failed: ${err}`));
       } else if (item.kind === "app") {
         invoke<string>("launch_app", { id: item.id })
           .then(() => hideWindow())
@@ -501,7 +539,7 @@ function App() {
           .catch(console.error);
       }
     },
-    [hideWindow, showToast],
+    [hideWindow, showToast, pendingConfirm],
   );
 
   useEffect(() => {
@@ -870,7 +908,7 @@ function App() {
                       {result.kind === "command" && (
                         <span className="mr-2 text-red-400 text-xs">&#x2715;</span>
                       )}
-                      {(result.kind === "websearch" || result.kind === "snippet") && (
+                      {(result.kind === "websearch" || result.kind === "snippet" || result.kind === "quick-action") && (
                         <span className="mr-2">{result.icon}</span>
                       )}
                       {result.name}
@@ -891,7 +929,9 @@ function App() {
                             ? "⏎ Open"
                             : result.kind === "snippet"
                               ? "⏎ Copy"
-                              : "⏎"}
+                              : result.kind === "quick-action"
+                                ? (result.confirm && pendingConfirm === result.meta ? "⏎ Confirm" : "⏎ Run")
+                                : "⏎"}
                       </span>
                     )}
                     {!isSelected && !result.isPinned && result.tag && (
