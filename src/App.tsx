@@ -5,7 +5,7 @@ import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 
 const appWindow = getCurrentWebviewWindow();
 
-type ResultKind = "app" | "command" | "process" | "calc" | "convert" | "color" | "websearch" | "prefix-hint" | "snippet" | "note-save" | "note-item" | "clip-item" | "window" | "quick-action";
+type ResultKind = "app" | "command" | "process" | "calc" | "convert" | "color" | "websearch" | "prefix-hint" | "snippet" | "note-save" | "note-item" | "clip-item" | "window" | "file" | "quick-action";
 
 interface DisplayResult {
   id: number;
@@ -97,6 +97,12 @@ interface WindowInfo {
   title: string;
 }
 
+interface FileHit {
+  name: string;
+  path: string;
+  is_dir: boolean;
+}
+
 interface IndexStatus {
   ready: boolean;
   count: number;
@@ -163,6 +169,7 @@ function App() {
   const [clipKeyword, setClipKeyword] = useState("clip");
   const [snipKeyword, setSnipKeyword] = useState("snip");
   const [winKeyword, setWinKeyword] = useState("win");
+  const [fileKeyword, setFileKeyword] = useState("file");
   const [hotkey, setHotkey] = useState("Alt+Space");
   // Id of a destructive quick action waiting for a second Enter to confirm.
   const [pendingConfirm, setPendingConfirm] = useState<string | null>(null);
@@ -219,6 +226,7 @@ function App() {
       if (cfg.builtin?.clip?.keyword) setClipKeyword(cfg.builtin.clip.keyword);
       if (cfg.builtin?.snippets?.keyword) setSnipKeyword(cfg.builtin.snippets.keyword);
       if (cfg.builtin?.windows?.keyword) setWinKeyword(cfg.builtin.windows.keyword);
+      if (cfg.builtin?.files?.keyword) setFileKeyword(cfg.builtin.files.keyword);
     } catch {}
   }, []);
 
@@ -290,14 +298,46 @@ function App() {
     const snipMode = ql === snipLower || ql.startsWith(snipLower + " ");
     const winLower = winKeyword.toLowerCase();
     const winMode = ql === winLower || ql.startsWith(winLower + " ");
+    const fileLower = fileKeyword.toLowerCase();
+    const fileMode = ql === fileLower || ql.startsWith(fileLower + " ");
 
-    if (!indexReady && !query.startsWith("/") && !closeArgMode && !closeExact && !noteArgMode && !notesExact && !clipMode && !snipMode && !winMode) return;
+    if (!indexReady && !query.startsWith("/") && !closeArgMode && !closeExact && !noteArgMode && !notesExact && !clipMode && !snipMode && !winMode && !fileMode) return;
 
     debounceRef.current = setTimeout(async () => {
       try {
         let items: DisplayResult[] = [];
 
-        if (winMode) {
+        if (fileMode) {
+          const arg = query.slice(fileKeyword.length).trim();
+          if (!arg) {
+            items = [{
+              id: -80,
+              name: "Search your files",
+              detail: `Type "${fileKeyword} <name>" to find files and folders`,
+              kind: "note-item",
+              tag: "Files",
+            }];
+          } else {
+            const hits = await invoke<FileHit[]>("search_files", { query: arg }).catch(() => []);
+            items = hits.length === 0
+              ? [{
+                  id: -81,
+                  name: "No matching files",
+                  detail: "Searches Desktop, Documents, Downloads, Pictures, Videos and Music",
+                  kind: "note-item" as ResultKind,
+                  tag: "Files",
+                }]
+              : hits.map((h, i) => ({
+                  id: -200 - i,
+                  name: h.name,
+                  detail: h.path,
+                  kind: "file" as ResultKind,
+                  icon: h.is_dir ? "📁" : "📄",
+                  meta: h.path,
+                  tag: h.is_dir ? "Folder" : "File",
+                }));
+          }
+        } else if (winMode) {
           const arg = query.slice(winKeyword.length).trim();
           const wins = await invoke<WindowInfo[]>("search_windows", { query: arg }).catch(() => []);
           if (wins.length === 0) {
@@ -565,7 +605,7 @@ function App() {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, resizeWindow, indexReady, closeKeyword, noteKeyword, notesKeyword, clipKeyword, snipKeyword, winKeyword]);
+  }, [query, resizeWindow, indexReady, closeKeyword, noteKeyword, notesKeyword, clipKeyword, snipKeyword, winKeyword, fileKeyword]);
 
   const handleAction = useCallback(
     (item: DisplayResult) => {
@@ -617,6 +657,10 @@ function App() {
         }
         setPendingConfirm(null);
         invoke("run_quick_action", { id: actionId })
+          .then(() => hideWindow())
+          .catch((err) => showToast(`Failed: ${err}`));
+      } else if (item.kind === "file") {
+        invoke("open_path", { path: item.meta })
           .then(() => hideWindow())
           .catch((err) => showToast(`Failed: ${err}`));
       } else if (item.kind === "window") {
@@ -702,7 +746,13 @@ function App() {
           if (results.length > 0) {
             e.preventDefault();
             const selected = results[selectedIndex];
-            if (selected) handleAction(selected);
+            if (selected?.kind === "file" && e.ctrlKey) {
+              invoke("reveal_path", { path: selected.meta })
+                .then(() => hideWindow())
+                .catch((err) => showToast(`Failed: ${err}`));
+            } else if (selected) {
+              handleAction(selected);
+            }
           }
           break;
       }
@@ -1027,7 +1077,7 @@ function App() {
                       {result.kind === "command" && (
                         <span className="mr-2 text-red-400 text-xs">&#x2715;</span>
                       )}
-                      {(result.kind === "websearch" || result.kind === "snippet" || result.kind === "quick-action") && (
+                      {(result.kind === "websearch" || result.kind === "snippet" || result.kind === "quick-action" || result.kind === "file") && (
                         <span className="mr-2">{result.icon}</span>
                       )}
                       {result.name}
@@ -1048,6 +1098,8 @@ function App() {
                             ? "⏎ Open"
                             : result.kind === "snippet"
                               ? "⏎ Copy"
+                              : result.kind === "file"
+                                ? "^⏎ Show in folder  ⏎ Open"
                               : result.kind === "window"
                                 ? "⏎ Switch"
                               : result.kind === "quick-action"
