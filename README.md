@@ -58,6 +58,10 @@ Type a conversion as `{value} {unit} to {unit}` (you can use `to` or `in`).
 
 Supports **weight, temperature, distance, data, and time**. Press **Enter** to copy the result.
 
+### Window Switcher
+
+Type `win` to list your open windows, or `win firefox` to filter them by title. Press **Enter** to bring the window to the front (minimised windows are restored). Keystrike's own windows are never listed.
+
 ### Snippet Search
 
 Type `snip` to list your text snippets, or `snip email` to search them by label, keyword, or content. Press **Enter** to copy the selected snippet (it clears from the clipboard after a minute). Create snippets in **Settings → Commands**.

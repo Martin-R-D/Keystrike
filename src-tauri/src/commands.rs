@@ -114,6 +114,7 @@ fn builtin_icon(id: &str) -> &'static str {
         "notes" => "\u{1F4CB}",
         "clip" => "\u{1F4CE}",
         "snippets" => "\u{2702}\u{FE0F}",
+        "windows" => "\u{1F5A5}\u{FE0F}",
         _ => "\u{1F517}",
     }
 }
@@ -204,6 +205,19 @@ impl AllCommandsConfig {
                 url: None,
                 fallback: None,
                 description: "Browse and search your text snippets".to_string(),
+                editable_keyword: true,
+                deletable: false,
+            },
+        );
+        builtin.insert(
+            "windows".to_string(),
+            BuiltinCommand {
+                keyword: "win".to_string(),
+                cmd_type: "system".to_string(),
+                label: "Switch Window".to_string(),
+                url: None,
+                fallback: None,
+                description: "Jump to any open window by title".to_string(),
                 editable_keyword: true,
                 deletable: false,
             },
