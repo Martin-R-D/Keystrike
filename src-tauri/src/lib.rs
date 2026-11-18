@@ -5,6 +5,7 @@ mod color;
 mod commands;
 mod converter;
 mod currency;
+mod file_search;
 mod hotkey;
 mod indexer;
 mod notes;
@@ -47,6 +48,9 @@ struct ClipboardState {
     history: Mutex<clipboard_history::History>,
     enabled: AtomicBool,
 }
+
+/// Index of file and folder names in the user's main folders.
+struct FileIndex(Mutex<Vec<file_search::FileEntry>>);
 
 /// The tray's "Show Keystrike" item, kept so its label can show the hotkey.
 struct ShowMenuItem(MenuItem<tauri::Wry>);
@@ -203,7 +207,8 @@ fn launch_app(id: u64, state: State<'_, AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn reindex_apps(state: State<'_, AppState>) -> usize {
+fn reindex_apps(state: State<'_, AppState>, app: tauri::AppHandle) -> usize {
+    rebuild_file_index(app);
     let usage = load_usage();
     let mut new_apps = indexer::index_apps();
     apply_usage(&mut new_apps, &usage);
@@ -457,6 +462,36 @@ fn search_windows(query: String) -> Vec<window_switcher::WindowInfo> {
 #[tauri::command]
 fn focus_window(hwnd: i64) -> Result<(), String> {
     window_switcher::focus(hwnd)
+}
+
+#[tauri::command]
+fn search_files(query: String, index: State<'_, FileIndex>) -> Vec<file_search::FileHit> {
+    file_search::search(&index.0.lock().unwrap(), &query, 8)
+}
+
+#[tauri::command]
+fn open_path(path: String) -> Result<(), String> {
+    let p = file_search::ensure_exists(&path)?;
+    open::that(p).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn reveal_path(path: String) -> Result<(), String> {
+    file_search::ensure_exists(&path)?;
+    std::process::Command::new("explorer")
+        .arg(format!("/select,{}", path))
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Rescan the user folders in the background and swap in the new index.
+fn rebuild_file_index(handle: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let index = file_search::build_index(&file_search::default_roots());
+        eprintln!("[keystrike] Indexed {} files and folders", index.len());
+        *handle.state::<FileIndex>().0.lock().unwrap() = index;
+    });
 }
 
 #[tauri::command]
@@ -744,6 +779,7 @@ pub fn run() {
         .manage(app_state)
         .manage(commands_config)
         .manage(CurrentHotkey(Mutex::new(initial_hotkey)))
+        .manage(FileIndex(Mutex::new(Vec::new())))
         .manage(CurrencyRates(Mutex::new(currency::load_cached())))
         .manage(ClipboardState {
             history: Mutex::new(clipboard_history::History::new()),
@@ -802,6 +838,9 @@ pub fn run() {
             set_clipboard_enabled,
             search_windows,
             focus_window,
+            search_files,
+            open_path,
+            reveal_path,
             get_theme,
             set_theme,
             get_aliases,
@@ -877,6 +916,7 @@ pub fn run() {
                             show_window(app);
                         }
                         "reindex" => {
+                            rebuild_file_index(app.clone());
                             let handle = app.clone();
                             std::thread::spawn(move || {
                                 let usage = load_usage();
@@ -969,6 +1009,8 @@ pub fn run() {
                     last_seen = Some(text);
                 }
             });
+
+            rebuild_file_index(app.handle().clone());
 
             // Background indexing
             let handle = app.handle().clone();
