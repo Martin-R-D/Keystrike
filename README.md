@@ -58,6 +58,10 @@ Type a conversion as `{value} {unit} to {unit}` (you can use `to` or `in`).
 
 Supports **weight, temperature, distance, data, and time**. Press **Enter** to copy the result.
 
+### Currency Converter
+
+Convert between currencies with live exchange rates, e.g. `100 usd to eur`, `eur in gbp`, or `1,250 usd to jpy` (an omitted amount means 1). Rates come from the European Central Bank via frankfurter.dev, refresh in the background every 12 hours, and are cached in `rates.json`, so the last known rates still work offline.
+
 ### Web Search Prefixes
 
 Type a prefix followed by a space and your query to search the web directly.
@@ -146,6 +150,7 @@ Keystrike stores its data in `%USERPROFILE%\.keystrike\`:
 | `commands.json` | Stores your customized keywords and custom commands |
 | `hotkey.json` | Stores your global hotkey |
 | `aliases.json` | Stores your app aliases |
+| `rates.json` | Cached exchange rates |
 | `theme.json` | Stores your theme mode and accent color |
 | `config.json` | Stores first-launch flag and configuration |
 
