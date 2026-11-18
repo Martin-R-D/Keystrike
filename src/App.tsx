@@ -156,6 +156,7 @@ function App() {
   const [noteKeyword, setNoteKeyword] = useState("note");
   const [notesKeyword, setNotesKeyword] = useState("notes");
   const [clipKeyword, setClipKeyword] = useState("clip");
+  const [snipKeyword, setSnipKeyword] = useState("snip");
   const [hotkey, setHotkey] = useState("Alt+Space");
   // Id of a destructive quick action waiting for a second Enter to confirm.
   const [pendingConfirm, setPendingConfirm] = useState<string | null>(null);
@@ -210,6 +211,7 @@ function App() {
       if (cfg.builtin?.note?.keyword) setNoteKeyword(cfg.builtin.note.keyword);
       if (cfg.builtin?.notes?.keyword) setNotesKeyword(cfg.builtin.notes.keyword);
       if (cfg.builtin?.clip?.keyword) setClipKeyword(cfg.builtin.clip.keyword);
+      if (cfg.builtin?.snippets?.keyword) setSnipKeyword(cfg.builtin.snippets.keyword);
     } catch {}
   }, []);
 
@@ -277,14 +279,38 @@ function App() {
     const notesExact = ql === notesKeyword.toLowerCase();
     const clipLower = clipKeyword.toLowerCase();
     const clipMode = ql === clipLower || ql.startsWith(clipLower + " ");
+    const snipLower = snipKeyword.toLowerCase();
+    const snipMode = ql === snipLower || ql.startsWith(snipLower + " ");
 
-    if (!indexReady && !query.startsWith("/") && !closeArgMode && !closeExact && !noteArgMode && !notesExact && !clipMode) return;
+    if (!indexReady && !query.startsWith("/") && !closeArgMode && !closeExact && !noteArgMode && !notesExact && !clipMode && !snipMode) return;
 
     debounceRef.current = setTimeout(async () => {
       try {
         let items: DisplayResult[] = [];
 
-        if (clipMode) {
+        if (snipMode) {
+          const arg = query.slice(snipKeyword.length).trim();
+          const snippets = await invoke<CommandResult[]>("search_snippets", { query: arg }).catch(() => []);
+          if (snippets.length === 0) {
+            items = [{
+              id: -60,
+              name: arg ? "No matching snippets" : "No snippets yet",
+              detail: arg ? "Try a different search" : "Add one in Settings → Commands",
+              kind: "note-item",
+              tag: "Snippet",
+            }];
+          } else {
+            items = snippets.slice(0, MAX_VISIBLE).map((c, i) => ({
+              id: -100 - i,
+              name: c.label,
+              detail: (c.content ?? "").replace(/\s+/g, " ").slice(0, 50),
+              kind: "snippet" as ResultKind,
+              icon: c.icon,
+              copyValue: c.content ?? "",
+              tag: "Snippet",
+            }));
+          }
+        } else if (clipMode) {
           const arg = query.slice(clipKeyword.length).trim();
           const clips = await invoke<ClipEntry[]>("search_clipboard_history", { query: arg }).catch(() => []);
           if (clips.length === 0) {
@@ -509,7 +535,7 @@ function App() {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, resizeWindow, indexReady, closeKeyword, noteKeyword, notesKeyword, clipKeyword]);
+  }, [query, resizeWindow, indexReady, closeKeyword, noteKeyword, notesKeyword, clipKeyword, snipKeyword]);
 
   const handleAction = useCallback(
     (item: DisplayResult) => {

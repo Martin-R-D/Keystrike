@@ -305,6 +305,14 @@ fn get_all_commands(commands: State<'_, Arc<Mutex<AllCommandsConfig>>>) -> AllCo
 }
 
 #[tauri::command]
+fn search_snippets(
+    query: String,
+    commands: State<'_, Arc<Mutex<AllCommandsConfig>>>,
+) -> Vec<commands::CommandResult> {
+    commands::search_snippets(&commands.lock().unwrap(), &query)
+}
+
+#[tauri::command]
 fn check_command(
     query: String,
     commands: State<'_, Arc<Mutex<AllCommandsConfig>>>,
@@ -764,6 +772,7 @@ pub fn run() {
             open_settings_window,
             get_all_commands,
             check_command,
+            search_snippets,
             match_command_prefixes,
             update_command_keyword,
             reset_commands_to_defaults,
