@@ -58,6 +58,17 @@ Type a conversion as `{value} {unit} to {unit}` (you can use `to` or `in`).
 
 Supports **weight, temperature, distance, data, and time**. Press **Enter** to copy the result.
 
+### Script Commands
+
+Drop `.ps1`, `.py`, `.bat`, `.cmd`, or `.exe` files into `%USERPROFILE%\.keystrike\scripts\` (use **Settings → General → Scripts → Open scripts folder**, which also creates an example `hello.ps1`). Type the file name followed by arguments, e.g. `hello Martin`, and every line the script prints becomes a result.
+
+- A plain line is copied when you press **Enter**; a line starting with `http://` or `https://` opens in your browser.
+- For more control print JSON lines: `{"title": "...", "subtitle": "...", "copy": "...", "url": "https://..."}`.
+- Arguments are passed as separate arguments (never through a shell), scripts are stopped after 3 seconds, and at most 8 results are shown.
+- A script whose name matches a command keyword is ignored, since commands take priority.
+
+Only run scripts you trust: they run with your normal user permissions.
+
 ### File Search
 
 Type `file report` to search file and folder names in your Desktop, Documents, Downloads, Pictures, Videos and Music folders. Every word must match; exact and prefix matches rank first. Press **Enter** to open, or **Ctrl+Enter** to show it in Explorer. The index is built in the background at startup and refreshed with **Reindex Apps** in the tray menu. Hidden items and folders like `node_modules` are skipped.
@@ -166,6 +177,7 @@ Keystrike stores its data in `%USERPROFILE%\.keystrike\`:
 | `commands.json` | Stores your customized keywords and custom commands |
 | `hotkey.json` | Stores your global hotkey |
 | `aliases.json` | Stores your app aliases |
+| `scripts/` | Your script commands |
 | `rates.json` | Cached exchange rates |
 | `theme.json` | Stores your theme mode and accent color |
 | `config.json` | Stores first-launch flag and configuration |
