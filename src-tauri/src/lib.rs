@@ -2,6 +2,7 @@ mod calculator;
 mod color;
 mod commands;
 mod converter;
+mod hotkey;
 mod indexer;
 mod notes;
 mod pins;
@@ -27,6 +28,12 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 
 use indexer::AppEntry;
 use searcher::SearchResult;
+
+/// The currently registered global hotkey (e.g. "Alt+Space").
+struct CurrentHotkey(Mutex<String>);
+
+/// The tray's "Show Keystrike" item, kept so its label can show the hotkey.
+struct ShowMenuItem(MenuItem<tauri::Wry>);
 
 struct AppState {
     apps: Mutex<Vec<AppEntry>>,
@@ -361,6 +368,49 @@ fn execute_snippet(content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_hotkey(current: State<'_, CurrentHotkey>) -> String {
+    current.0.lock().unwrap().clone()
+}
+
+/// Rebind the global hotkey. The new shortcut is registered before the old one
+/// is released, so a failure (invalid, or taken by another app) leaves the
+/// existing hotkey working.
+#[tauri::command]
+fn set_hotkey(
+    hotkey: String,
+    app: tauri::AppHandle,
+    current: State<'_, CurrentHotkey>,
+    show_item: State<'_, ShowMenuItem>,
+) -> Result<String, String> {
+    let new_shortcut = hotkey::parse(&hotkey)?;
+    let mut cur = current.0.lock().unwrap();
+    let old_shortcut = hotkey::parse(&cur).map_err(|e| e.to_string())?;
+
+    if new_shortcut != old_shortcut {
+        let gs = app.global_shortcut();
+        gs.register(new_shortcut)
+            .map_err(|e| format!("Could not register hotkey (it may be in use): {}", e))?;
+        let _ = gs.unregister(old_shortcut);
+    }
+
+    hotkey::save(&hotkey)?;
+    *cur = hotkey.trim().to_string();
+    let _ = show_item
+        .0
+        .set_text(format!("Show Keystrike   ({})", hotkey::display(&cur)));
+    Ok(cur.clone())
+}
+
+#[tauri::command]
+fn reset_hotkey(
+    app: tauri::AppHandle,
+    current: State<'_, CurrentHotkey>,
+    show_item: State<'_, ShowMenuItem>,
+) -> Result<String, String> {
+    set_hotkey(hotkey::DEFAULT_HOTKEY.to_string(), app, current, show_item)
+}
+
+#[tauri::command]
 fn toggle_pin(id: u64, state: State<'_, AppState>) -> Result<bool, String> {
     let apps = state.apps.lock().unwrap();
     let entry = apps.iter().find(|a| a.id == id).ok_or("App not found")?;
@@ -519,10 +569,12 @@ pub fn run() {
     };
 
     let commands_config = Arc::new(Mutex::new(commands::load()));
+    let initial_hotkey = hotkey::load();
 
     tauri::Builder::default()
         .manage(app_state)
         .manage(commands_config)
+        .manage(CurrentHotkey(Mutex::new(initial_hotkey)))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -532,9 +584,9 @@ pub fn run() {
         }))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, shortcut, event| {
-                    let alt_space = Shortcut::new(Some(Modifiers::ALT), Code::Space);
-                    if event.state == ShortcutState::Pressed && *shortcut == alt_space {
+                .with_handler(|app, _shortcut, event| {
+                    // Only the Keystrike hotkey is ever registered.
+                    if event.state == ShortcutState::Pressed {
                         toggle_window(app);
                     }
                 })
@@ -568,16 +620,36 @@ pub fn run() {
             get_notes,
             toggle_pin,
             get_pins,
+            get_hotkey,
+            set_hotkey,
+            reset_hotkey,
         ])
         .setup(|app| {
-            // Register hotkey
-            let alt_space = Shortcut::new(Some(Modifiers::ALT), Code::Space);
-            app.global_shortcut().register(alt_space)?;
+            // Register the saved hotkey; if it is unavailable (e.g. taken by
+            // another app since it was saved) fall back to the default.
+            let saved_hotkey = app.state::<CurrentHotkey>().0.lock().unwrap().clone();
+            let registered = match hotkey::parse(&saved_hotkey)
+                .and_then(|s| app.global_shortcut().register(s).map_err(|e| e.to_string()))
+            {
+                Ok(()) => saved_hotkey,
+                Err(e) => {
+                    eprintln!("[keystrike] Hotkey '{}' unavailable ({}), using default", saved_hotkey, e);
+                    let default = Shortcut::new(Some(Modifiers::ALT), Code::Space);
+                    app.global_shortcut().register(default)?;
+                    hotkey::DEFAULT_HOTKEY.to_string()
+                }
+            };
+            *app.state::<CurrentHotkey>().0.lock().unwrap() = registered.clone();
 
             // Build tray menu
             let show_item = MenuItem::with_id(
-                app, "show", "Show Keystrike   (Alt+Space)", true, None::<&str>,
+                app,
+                "show",
+                format!("Show Keystrike   ({})", hotkey::display(&registered)),
+                true,
+                None::<&str>,
             )?;
+            app.manage(ShowMenuItem(show_item.clone()));
             let reindex_item = MenuItem::with_id(
                 app, "reindex", "Reindex Apps", true, None::<&str>,
             )?;

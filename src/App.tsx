@@ -132,6 +132,7 @@ function App() {
   const [closeKeyword, setCloseKeyword] = useState(DEFAULT_CLOSE_KEYWORD);
   const [noteKeyword, setNoteKeyword] = useState("note");
   const [notesKeyword, setNotesKeyword] = useState("notes");
+  const [hotkey, setHotkey] = useState("Alt+Space");
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -188,6 +189,10 @@ function App() {
   useEffect(() => {
     loadCloseKeyword();
   }, [loadCloseKeyword]);
+
+  useEffect(() => {
+    invoke<string>("get_hotkey").then(setHotkey).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const onFocus = () => {
@@ -915,7 +920,7 @@ function App() {
               {indexCount} apps indexed
             </div>
             <div className="text-sm text-gray-400 mb-5">
-              Press <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-gray-200">Alt+Space</span> anytime to launch.
+              Press <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-gray-200">{hotkey}</span> anytime to launch.
             </div>
             <button
               className="rounded-lg bg-indigo-500 px-5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-400"

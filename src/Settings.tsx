@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import GeneralSettings from "./GeneralSettings";
 
 type CommandType = "url" | "snippet" | "system";
 
@@ -105,6 +106,7 @@ const EMPTY_FORM: FormState = {
 };
 
 function Settings() {
+  const [tab, setTab] = useState<"commands" | "general">("commands");
   const [config, setConfig] = useState<AllCommandsConfig | null>(null);
 
   // Built-in inline keyword editing.
@@ -349,23 +351,23 @@ function Settings() {
         <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
           Settings
         </div>
-        <button
-          className="flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-white"
-          style={{ background: "rgba(99, 102, 241, 0.18)", borderLeft: "2px solid #6366f1" }}
-        >
-          Commands
-        </button>
-        <div
-          className="flex cursor-not-allowed items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm text-gray-600"
-          title="Coming soon"
-        >
-          <span>General</span>
-          <span className="text-[10px] text-gray-700">Soon</span>
-        </div>
+        {(["commands", "general"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setTab(t)}
+            className={`flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm ${tab === t ? "font-medium text-white" : "text-gray-400 hover:bg-white/5"}`}
+            style={tab === t ? { background: "rgba(99, 102, 241, 0.18)", borderLeft: "2px solid #6366f1" } : { borderLeft: "2px solid transparent" }}
+          >
+            {t === "commands" ? "Commands" : "General"}
+          </button>
+        ))}
       </aside>
 
       {/* Main content */}
       <main className="flex-1 overflow-y-auto p-8">
+        {tab === "general" && <GeneralSettings />}
+        {tab === "commands" && (<>
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-white">Commands &amp; Shortcuts</h1>
@@ -527,6 +529,7 @@ function Settings() {
             Reset built-in keywords to default
           </button>
         </div>
+        </>)}
       </main>
 
       {/* Create / Edit modal */}
