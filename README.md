@@ -58,6 +58,10 @@ Type a conversion as `{value} {unit} to {unit}` (you can use `to` or `in`).
 
 Supports **weight, temperature, distance, data, and time**. Press **Enter** to copy the result.
 
+### Snippet Search
+
+Type `snip` to list your text snippets, or `snip email` to search them by label, keyword, or content. Press **Enter** to copy the selected snippet (it clears from the clipboard after a minute). Create snippets in **Settings → Commands**.
+
 ### Clipboard History
 
 Type `clip` to browse the last 50 things you copied, or `clip invoice` to search them. Press **Enter** to copy an entry back, or **Ctrl+Delete** to remove it. History is kept in memory only (never written to disk), snippets copied by Keystrike are never recorded, and you can turn it off in **Settings → General**.
