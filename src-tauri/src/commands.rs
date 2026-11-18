@@ -112,6 +112,7 @@ fn builtin_icon(id: &str) -> &'static str {
         "close" => "\u{2715}",
         "note" => "\u{1F4DD}",
         "notes" => "\u{1F4CB}",
+        "clip" => "\u{1F4CE}",
         _ => "\u{1F517}",
     }
 }
@@ -176,6 +177,19 @@ impl AllCommandsConfig {
                 url: None,
                 fallback: None,
                 description: "Browse and copy your saved notes".to_string(),
+                editable_keyword: true,
+                deletable: false,
+            },
+        );
+        builtin.insert(
+            "clip".to_string(),
+            BuiltinCommand {
+                keyword: "clip".to_string(),
+                cmd_type: "system".to_string(),
+                label: "Clipboard History".to_string(),
+                url: None,
+                fallback: None,
+                description: "Browse and search what you recently copied".to_string(),
                 editable_keyword: true,
                 deletable: false,
             },

@@ -1,5 +1,6 @@
 mod aliases;
 mod calculator;
+mod clipboard_history;
 mod color;
 mod commands;
 mod converter;
@@ -17,6 +18,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use commands::{AllCommandsConfig, CustomCommand, CustomCommandInput};
@@ -38,6 +40,12 @@ struct CurrentHotkey(Mutex<String>);
 
 /// Latest exchange rates (relative to USD), if any have been loaded.
 struct CurrencyRates(Mutex<Option<currency::Rates>>);
+
+/// Clipboard history plus the setting that switches recording on or off.
+struct ClipboardState {
+    history: Mutex<clipboard_history::History>,
+    enabled: AtomicBool,
+}
 
 /// The tray's "Show Keystrike" item, kept so its label can show the hotkey.
 struct ShowMenuItem(MenuItem<tauri::Wry>);
@@ -374,8 +382,11 @@ fn delete_custom_command(
 /// only if the clipboard still holds the same text (so we never clobber
 /// something the user copied in the meantime).
 #[tauri::command]
-fn execute_snippet(content: String) -> Result<(), String> {
+fn execute_snippet(content: String, clipboard_state: State<'_, ClipboardState>) -> Result<(), String> {
     use arboard::Clipboard;
+
+    // Snippets often hold sensitive text; keep them out of the history.
+    clipboard_state.history.lock().unwrap().ignore_text(&content);
 
     let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
     clipboard.set_text(content.clone()).map_err(|e| e.to_string())?;
@@ -392,6 +403,40 @@ fn execute_snippet(content: String) -> Result<(), String> {
         }
     });
 
+    Ok(())
+}
+
+#[tauri::command]
+fn search_clipboard_history(
+    query: String,
+    state: State<'_, ClipboardState>,
+) -> Vec<clipboard_history::Entry> {
+    state.history.lock().unwrap().search(&query)
+}
+
+#[tauri::command]
+fn remove_clipboard_entry(id: u64, state: State<'_, ClipboardState>) -> bool {
+    state.history.lock().unwrap().remove(id)
+}
+
+#[tauri::command]
+fn clear_clipboard_history(state: State<'_, ClipboardState>) {
+    state.history.lock().unwrap().clear();
+}
+
+#[tauri::command]
+fn get_clipboard_enabled(state: State<'_, ClipboardState>) -> bool {
+    state.enabled.load(Ordering::Relaxed)
+}
+
+/// Turn clipboard history on or off. Turning it off also wipes what was kept.
+#[tauri::command]
+fn set_clipboard_enabled(enabled: bool, state: State<'_, ClipboardState>) -> Result<(), String> {
+    clipboard_history::save_enabled(enabled)?;
+    state.enabled.store(enabled, Ordering::Relaxed);
+    if !enabled {
+        state.history.lock().unwrap().clear();
+    }
     Ok(())
 }
 
@@ -681,6 +726,10 @@ pub fn run() {
         .manage(commands_config)
         .manage(CurrentHotkey(Mutex::new(initial_hotkey)))
         .manage(CurrencyRates(Mutex::new(currency::load_cached())))
+        .manage(ClipboardState {
+            history: Mutex::new(clipboard_history::History::new()),
+            enabled: AtomicBool::new(clipboard_history::load_enabled()),
+        })
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -726,6 +775,11 @@ pub fn run() {
             get_notes,
             toggle_pin,
             get_pins,
+            search_clipboard_history,
+            remove_clipboard_entry,
+            clear_clipboard_history,
+            get_clipboard_enabled,
+            set_clipboard_enabled,
             get_theme,
             set_theme,
             get_aliases,
@@ -860,6 +914,38 @@ pub fn run() {
                     }
                 }
                 std::thread::sleep(std::time::Duration::from_secs(wait));
+            });
+
+            // Watch the clipboard and record text copies while history is on.
+            let clip_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let mut clipboard = match arboard::Clipboard::new() {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("[keystrike] Clipboard history unavailable: {}", e);
+                        return;
+                    }
+                };
+                let mut last_seen: Option<String> = None;
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    let state = clip_handle.state::<ClipboardState>();
+                    if !state.enabled.load(Ordering::Relaxed) {
+                        last_seen = None;
+                        continue;
+                    }
+                    // Non-text clipboard content is simply skipped.
+                    let Ok(text) = clipboard.get_text() else { continue };
+                    if last_seen.as_deref() == Some(text.as_str()) {
+                        continue;
+                    }
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    state.history.lock().unwrap().record(&text, now);
+                    last_seen = Some(text);
+                }
             });
 
             // Background indexing
