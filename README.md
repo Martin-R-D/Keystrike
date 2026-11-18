@@ -88,12 +88,17 @@ Create your own commands from the Settings dashboard — two types:
 
 Use the `/close` command to find and terminate running applications. Type `/close chrome`, select the process from the fuzzy-matched list, and press **Enter** to terminate it. System processes are filtered out automatically.
 
+### Quick Actions
+
+Type `lock`, `sleep`, `sign out`, `restart`, `shut down`, or `empty recycle bin` to run a system action. Restart, shut down, sign out, and emptying the Recycle Bin ask you to press **Enter** a second time to confirm.
+
 ### Settings Dashboard
 
 Click the **gear icon** in the search bar to open Settings, where you can:
 
 - **Edit any built-in keyword** — rename `g`, `gh`, `/close`, and others to whatever you prefer.
 - **Add, edit, and delete custom commands** — manage your URL commands and text snippets.
+- **Change the global hotkey** — open the **General** tab and record a new shortcut (default **Alt+Space**).
 
 Changes apply instantly — no restart required.
 
@@ -103,7 +108,7 @@ Changes apply instantly — no restart required.
 
 | Shortcut | Action |
 |---|---|
-| **Alt+Space** | Toggle Keystrike (global, works from any app) |
+| **Alt+Space** (configurable) | Toggle Keystrike (global, works from any app) |
 | **Enter** | Launch app / open URL / copy result / run command |
 | **Escape** | Hide Keystrike |
 | **Arrow Up/Down** | Navigate results |
@@ -131,6 +136,7 @@ Keystrike stores its data in `%USERPROFILE%\.keystrike\`:
 | `app_usage.json` | Tracks how often you launch each app (for ranking) |
 | `window_position.json` | Remembers where you last positioned the window |
 | `commands.json` | Stores your customized keywords and custom commands |
+| `hotkey.json` | Stores your global hotkey |
 | `config.json` | Stores first-launch flag and configuration |
 
 ---
