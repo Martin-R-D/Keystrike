@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 const MODIFIER_CODES = new Set([
@@ -120,6 +120,173 @@ function HotkeySection() {
   );
 }
 
+interface AliasEntry {
+  alias: string;
+  name: string;
+  launch_path: string;
+}
+
+interface AppHit {
+  id: number;
+  name: string;
+  path: string;
+}
+
+function AliasesSection() {
+  const [aliases, setAliases] = useState<AliasEntry[]>([]);
+  const [alias, setAlias] = useState("");
+  const [appQuery, setAppQuery] = useState("");
+  const [hits, setHits] = useState<AppHit[]>([]);
+  const [chosen, setChosen] = useState<AppHit | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const searchSeq = useRef(0);
+
+  const load = useCallback(() => {
+    invoke<AliasEntry[]>("get_aliases").then(setAliases).catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
+    if (chosen || !appQuery.trim()) {
+      setHits([]);
+      return;
+    }
+    const seq = ++searchSeq.current;
+    invoke<AppHit[]>("search_apps", { query: appQuery })
+      .then((r) => {
+        if (seq === searchSeq.current) setHits(r);
+      })
+      .catch(() => {});
+  }, [appQuery, chosen]);
+
+  const canAdd = alias.trim().length > 0 && chosen !== null;
+
+  const add = async () => {
+    if (!chosen || !canAdd) return;
+    try {
+      await invoke("set_alias", { alias: alias.trim(), appId: chosen.id });
+      setAlias("");
+      setAppQuery("");
+      setChosen(null);
+      setError(null);
+      load();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const remove = async (a: string) => {
+    await invoke("remove_alias", { alias: a }).catch(console.error);
+    load();
+  };
+
+  const inputStyle = { border: "1px solid rgba(255,255,255,0.12)" };
+
+  return (
+    <section>
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">App Aliases</h2>
+      <p className="mt-1 text-xs text-gray-500">
+        Type a short alias in the search bar to jump straight to an app, e.g. <span className="font-mono text-gray-400">ff</span> for Firefox.
+      </p>
+      <div className="mt-3 rounded-xl p-4" style={{ border: "1px solid rgba(255,255,255,0.07)" }}>
+        <div className="flex items-start gap-2">
+          <input
+            type="text"
+            value={alias}
+            spellCheck={false}
+            placeholder="Alias"
+            onChange={(e) => setAlias(e.target.value)}
+            className="w-28 rounded-md bg-black/30 px-3 py-1.5 font-mono text-sm text-white outline-none placeholder:text-gray-600"
+            style={inputStyle}
+          />
+          <div className="relative flex-1">
+            <input
+              type="text"
+              value={chosen ? chosen.name : appQuery}
+              spellCheck={false}
+              placeholder="Search for an app..."
+              onChange={(e) => {
+                setChosen(null);
+                setAppQuery(e.target.value);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (!chosen && hits.length > 0) {
+                    setChosen(hits[0]);
+                    setHits([]);
+                  } else {
+                    add();
+                  }
+                }
+              }}
+              className="w-full rounded-md bg-black/30 px-3 py-1.5 text-sm text-white outline-none placeholder:text-gray-600"
+              style={inputStyle}
+            />
+            {hits.length > 0 && (
+              <div
+                className="absolute left-0 right-0 z-10 mt-1 overflow-hidden rounded-md"
+                style={{ background: "#25253a", border: "1px solid rgba(255,255,255,0.12)" }}
+              >
+                {hits.map((h) => (
+                  <button
+                    key={h.id}
+                    type="button"
+                    className="block w-full truncate px-3 py-1.5 text-left text-sm text-gray-200 hover:bg-white/10"
+                    onClick={() => {
+                      setChosen(h);
+                      setHits([]);
+                    }}
+                  >
+                    {h.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            disabled={!canAdd}
+            onClick={add}
+            className="rounded-md px-3.5 py-1.5 text-sm font-medium text-white transition-colors"
+            style={canAdd ? { background: "#6366f1" } : { background: "rgba(99,102,241,0.35)", cursor: "not-allowed" }}
+          >
+            Add
+          </button>
+        </div>
+        {error && <div className="mt-2 text-xs font-medium text-red-400">{error}</div>}
+
+        {aliases.length > 0 && (
+          <div className="mt-4 flex flex-col">
+            {aliases.map((a, i) => (
+              <div
+                key={a.alias}
+                className="flex items-center justify-between py-2 text-sm"
+                style={{ borderTop: i === 0 ? "none" : "1px solid rgba(255,255,255,0.05)" }}
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="w-28 shrink-0 font-mono font-medium text-indigo-400">{a.alias}</span>
+                  <span className="truncate text-gray-200">{a.name}</span>
+                </div>
+                <button
+                  type="button"
+                  className="text-xs text-gray-500 hover:text-red-400"
+                  onClick={() => remove(a.alias)}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function GeneralSettings() {
   return (
     <div>
@@ -127,6 +294,7 @@ function GeneralSettings() {
       <p className="mt-1 text-sm text-gray-400">Core preferences for Keystrike</p>
       <div className="mt-7 flex flex-col gap-7">
         <HotkeySection />
+        <AliasesSection />
       </div>
     </div>
   );

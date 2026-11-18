@@ -1,3 +1,4 @@
+mod aliases;
 mod calculator;
 mod color;
 mod commands;
@@ -41,6 +42,7 @@ struct AppState {
     searcher: searcher::Searcher,
     ready: Mutex<bool>,
     pins: Mutex<Vec<pins::Pin>>,
+    aliases: Mutex<Vec<aliases::Alias>>,
 }
 
 pub(crate) fn data_dir() -> PathBuf {
@@ -135,10 +137,30 @@ fn search_apps(query: String, state: State<'_, AppState>) -> Vec<SearchResult> {
     let apps = state.apps.lock().unwrap();
     let pin_list = state.pins.lock().unwrap();
     if query.is_empty() {
-        searcher::most_used(&apps, 8, &pin_list)
-    } else {
-        state.searcher.search(&query, &apps, 8, &pin_list)
+        return searcher::most_used(&apps, 8, &pin_list);
     }
+
+    let mut results = state.searcher.search(&query, &apps, 8, &pin_list);
+
+    // An exact alias match always wins the top slot.
+    let alias_list = state.aliases.lock().unwrap();
+    if let Some(alias) = aliases::find(&alias_list, &query) {
+        if let Some(app) = apps.iter().find(|a| a.launch_path == alias.launch_path) {
+            results.retain(|r| r.id != app.id);
+            results.insert(
+                0,
+                SearchResult {
+                    id: app.id,
+                    name: app.name.clone(),
+                    path: app.path.clone(),
+                    score: f64::MAX,
+                    is_pinned: pins::is_pinned(&pin_list, &app.launch_path),
+                },
+            );
+            results.truncate(8);
+        }
+    }
+    results
 }
 
 #[tauri::command]
@@ -369,6 +391,42 @@ fn execute_snippet(content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_aliases(state: State<'_, AppState>) -> Vec<aliases::Alias> {
+    state.aliases.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn set_alias(
+    alias: String,
+    app_id: u64,
+    state: State<'_, AppState>,
+    commands: State<'_, Arc<Mutex<AllCommandsConfig>>>,
+) -> Result<aliases::Alias, String> {
+    // Command keywords take precedence in the search bar, so an alias that
+    // collides with one could never be reached.
+    commands::validate_keyword(&commands.lock().unwrap(), None, &alias)
+        .map_err(|e| format!("{} (as a command keyword)", e))?;
+
+    let (name, launch_path) = {
+        let apps = state.apps.lock().unwrap();
+        let entry = apps.iter().find(|a| a.id == app_id).ok_or("App not found")?;
+        (entry.name.clone(), entry.launch_path.clone())
+    };
+
+    let mut list = state.aliases.lock().unwrap();
+    aliases::set(&mut list, &alias, &name, &launch_path)?;
+    aliases::save(&list)?;
+    Ok(list.iter().find(|a| a.launch_path == launch_path && a.alias == alias.trim().to_lowercase()).cloned().unwrap())
+}
+
+#[tauri::command]
+fn remove_alias(alias: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut list = state.aliases.lock().unwrap();
+    aliases::remove(&mut list, &alias);
+    aliases::save(&list)
+}
+
+#[tauri::command]
 fn search_quick_actions(query: String) -> Vec<quick_actions::QuickAction> {
     quick_actions::search(&query)
 }
@@ -578,6 +636,7 @@ pub fn run() {
         searcher: searcher::Searcher::new(),
         ready: Mutex::new(false),
         pins: Mutex::new(pins::load()),
+        aliases: Mutex::new(aliases::load()),
     };
 
     let commands_config = Arc::new(Mutex::new(commands::load()));
@@ -632,6 +691,9 @@ pub fn run() {
             get_notes,
             toggle_pin,
             get_pins,
+            get_aliases,
+            set_alias,
+            remove_alias,
             search_quick_actions,
             run_quick_action,
             get_hotkey,
