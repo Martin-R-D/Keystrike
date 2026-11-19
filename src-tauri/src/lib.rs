@@ -182,8 +182,9 @@ fn search_apps(query: String, state: State<'_, AppState>) -> Vec<SearchResult> {
     results
 }
 
-#[tauri::command]
-fn launch_app(id: u64, state: State<'_, AppState>) -> Result<String, String> {
+/// Look up an app, count the launch towards its ranking and return
+/// (name, launch_path).
+fn record_launch(id: u64, state: &AppState) -> Result<(String, String), String> {
     let mut apps = state.apps.lock().unwrap();
     let entry = apps
         .iter_mut()
@@ -195,7 +196,12 @@ fn launch_app(id: u64, state: State<'_, AppState>) -> Result<String, String> {
     entry.use_count += 1;
 
     save_usage(&apps);
-    drop(apps);
+    Ok((name, launch_path))
+}
+
+#[tauri::command]
+fn launch_app(id: u64, state: State<'_, AppState>) -> Result<String, String> {
+    let (name, launch_path) = record_launch(id, &state)?;
 
     eprintln!("[keystrike] Launching: {}", launch_path);
 
@@ -203,6 +209,31 @@ fn launch_app(id: u64, state: State<'_, AppState>) -> Result<String, String> {
         .arg(&launch_path)
         .spawn()
         .map_err(|e| format!("Failed to launch {}: {}", name, e))?;
+
+    Ok(name)
+}
+
+/// Launch an app elevated (Windows shows the UAC prompt). The path is passed
+/// through an environment variable so it is never parsed as PowerShell code.
+#[tauri::command]
+fn launch_app_admin(id: u64, state: State<'_, AppState>) -> Result<String, String> {
+    use std::os::windows::process::CommandExt;
+
+    let (name, launch_path) = record_launch(id, &state)?;
+
+    eprintln!("[keystrike] Launching as administrator: {}", launch_path);
+
+    std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Start-Process -FilePath $env:KEYSTRIKE_TARGET -Verb RunAs",
+        ])
+        .env("KEYSTRIKE_TARGET", &launch_path)
+        .creation_flags(0x08000000)
+        .spawn()
+        .map_err(|e| format!("Failed to launch {} as administrator: {}", name, e))?;
 
     Ok(name)
 }
@@ -847,6 +878,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             search_apps,
             launch_app,
+            launch_app_admin,
             reindex_apps,
             search_running_apps,
             close_process,
