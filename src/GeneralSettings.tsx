@@ -365,6 +365,7 @@ function AppearanceSection() {
 
 function ClipboardSection() {
   const [enabled, setEnabled] = useState(true);
+  const [cleared, setCleared] = useState(false);
 
   useEffect(() => {
     invoke<boolean>("get_clipboard_enabled").then(setEnabled).catch(console.error);
@@ -393,19 +394,35 @@ function ClipboardSection() {
             Type <span className="font-mono text-gray-400">clip</span> to browse it. Kept in memory only (last 50 items) and never saved to disk. Turning it off clears it.
           </div>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={enabled}
-          onClick={toggle}
-          className="relative h-6 w-11 shrink-0 rounded-full transition-colors"
-          style={{ background: enabled ? "var(--accent)" : "rgba(var(--fg-rgb), 0.18)" }}
-        >
-          <span
-            className="absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all"
-            style={{ left: enabled ? 22 : 2 }}
-          />
-        </button>
+        <div className="flex shrink-0 items-center gap-3">
+          <button
+            type="button"
+            className="text-xs text-gray-500 underline-offset-2 hover:text-gray-300 hover:underline"
+            onClick={() =>
+              invoke("clear_clipboard_history")
+                .then(() => {
+                  setCleared(true);
+                  window.setTimeout(() => setCleared(false), 1500);
+                })
+                .catch(console.error)
+            }
+          >
+            {cleared ? "Cleared" : "Clear now"}
+          </button>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            onClick={toggle}
+            className="relative h-6 w-11 shrink-0 rounded-full transition-colors"
+            style={{ background: enabled ? "var(--accent)" : "rgba(var(--fg-rgb), 0.18)" }}
+          >
+            <span
+              className="absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all"
+              style={{ left: enabled ? 22 : 2 }}
+            />
+          </button>
+        </div>
       </div>
     </section>
   );
