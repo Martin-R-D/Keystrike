@@ -827,7 +827,11 @@ function App() {
           if (results.length > 0) {
             e.preventDefault();
             const selected = results[selectedIndex];
-            if (selected?.kind === "file" && e.ctrlKey) {
+            if (selected?.kind === "app" && e.shiftKey) {
+              invoke<string>("launch_app_admin", { id: selected.id })
+                .then(() => hideWindow())
+                .catch((err) => showToast(`Failed: ${err}`));
+            } else             if (selected?.kind === "file" && e.ctrlKey) {
               invoke("reveal_path", { path: selected.meta })
                 .then(() => hideWindow())
                 .catch((err) => showToast(`Failed: ${err}`));
@@ -1174,7 +1178,7 @@ function App() {
                     {isSelected && (
                       <span className="text-[10px] text-gray-500 whitespace-nowrap">
                         {result.kind === "app"
-                          ? (result.isPinned ? "^P Unpin  ⏎" : "^P Pin  ⏎")
+                          ? (result.isPinned ? "^P Unpin  ⇧⏎ Admin  ⏎" : "^P Pin  ⇧⏎ Admin  ⏎")
                           : result.kind === "websearch"
                             ? "⏎ Open"
                             : result.kind === "snippet"
