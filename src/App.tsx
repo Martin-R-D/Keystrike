@@ -760,6 +760,17 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Alt+1..8 runs the Nth visible result.
+      const quick = e.altKey && !e.ctrlKey ? /^Digit([1-8])$/.exec(e.code) : null;
+      if (quick) {
+        const target = results[Number(quick[1]) - 1];
+        if (target) {
+          e.preventDefault();
+          handleAction(target);
+        }
+        return;
+      }
+
       if (e.key === "Delete" && e.ctrlKey) {
         const selected = results[selectedIndex];
         if (selected?.kind === "clip-item" && selected.copyValue) {
