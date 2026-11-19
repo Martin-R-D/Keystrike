@@ -137,6 +137,7 @@ Click the **gear icon** in the search bar to open Settings, where you can:
 
 - **Edit any built-in keyword** — rename `g`, `gh`, `/close`, and others to whatever you prefer.
 - **Add, edit, and delete custom commands** — manage your URL commands and text snippets.
+- **Reindex apps and files** — one click under **General → Maintenance**, same as the tray's *Reindex Apps*.
 - **Change the global hotkey** — open the **General** tab and record a new shortcut (default **Alt+Space**).
 
 Changes apply instantly — no restart required.

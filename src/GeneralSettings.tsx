@@ -494,6 +494,57 @@ function ScriptsSection() {
   );
 }
 
+function MaintenanceSection() {
+  const [reindexing, setReindexing] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const reindex = async () => {
+    setReindexing(true);
+    setMessage(null);
+    try {
+      const count = await invoke<number>("reindex_apps");
+      setMessage(`${count} apps indexed`);
+    } catch (e) {
+      setMessage(`Failed: ${e}`);
+    } finally {
+      setReindexing(false);
+    }
+  };
+
+  return (
+    <section>
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Maintenance</h2>
+      <div
+        className="mt-3 flex items-center justify-between gap-4 rounded-xl px-4 py-3"
+        style={{ border: "1px solid rgba(var(--fg-rgb), 0.07)" }}
+      >
+        <div>
+          <div className="text-sm text-gray-200">Reindex apps and files</div>
+          <div className="text-xs text-gray-500">
+            Rescan the Start Menu and your user folders after installing new software.
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-3">
+          {message && (
+            <span className={`text-xs font-medium ${message.startsWith("Failed") ? "text-red-400" : "text-green-400"}`}>
+              {message}
+            </span>
+          )}
+          <button
+            type="button"
+            disabled={reindexing}
+            className="rounded-md px-3 py-1.5 text-sm font-medium text-gray-200 transition-colors hover:bg-white/10"
+            style={{ border: "1px solid rgba(var(--fg-rgb), 0.12)", opacity: reindexing ? 0.6 : 1 }}
+            onClick={reindex}
+          >
+            {reindexing ? "Reindexing..." : "Reindex"}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function GeneralSettings() {
   return (
     <div>
@@ -504,6 +555,7 @@ function GeneralSettings() {
         <AppearanceSection />
         <ClipboardSection />
         <ScriptsSection />
+        <MaintenanceSection />
         <AliasesSection />
       </div>
     </div>
