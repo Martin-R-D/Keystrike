@@ -151,6 +151,7 @@ Changes apply instantly — no restart required.
 | **Enter** | Launch app / open URL / copy result / run command |
 | **Escape** | Hide Keystrike |
 | **Arrow Up/Down** | Navigate results |
+| **Alt+1** to **Alt+8** | Run the 1st to 8th result directly |
 | **Tab** / **Shift+Tab** | Next / previous result |
 
 ---
