@@ -150,6 +150,7 @@ Changes apply instantly — no restart required.
 | **Alt+Space** (configurable) | Toggle Keystrike (global, works from any app) |
 | **Enter** | Launch app / open URL / copy result / run command |
 | **Shift+Enter** | Launch the selected app as administrator |
+| **Ctrl+Enter** | Show the selected app (or file) in Explorer |
 | **Escape** | Hide Keystrike |
 | **Arrow Up/Down** | Navigate results |
 | **Alt+1** to **Alt+8** | Run the 1st to 8th result directly |

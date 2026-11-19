@@ -827,7 +827,12 @@ function App() {
           if (results.length > 0) {
             e.preventDefault();
             const selected = results[selectedIndex];
-            if (selected?.kind === "app" && e.shiftKey) {
+            if (selected?.kind === "app" && e.ctrlKey) {
+              // Show where the app lives in Explorer.
+              invoke("reveal_path", { path: selected.detail })
+                .then(() => hideWindow())
+                .catch((err) => showToast(`Failed: ${err}`));
+            } else if (selected?.kind === "app" && e.shiftKey) {
               invoke<string>("launch_app_admin", { id: selected.id })
                 .then(() => hideWindow())
                 .catch((err) => showToast(`Failed: ${err}`));
@@ -1178,7 +1183,7 @@ function App() {
                     {isSelected && (
                       <span className="text-[10px] text-gray-500 whitespace-nowrap">
                         {result.kind === "app"
-                          ? (result.isPinned ? "^P Unpin  ⇧⏎ Admin  ⏎" : "^P Pin  ⇧⏎ Admin  ⏎")
+                          ? (result.isPinned ? "^P Unpin  ^⏎ Folder  ⇧⏎ Admin  ⏎" : "^P Pin  ^⏎ Folder  ⇧⏎ Admin  ⏎")
                           : result.kind === "websearch"
                             ? "⏎ Open"
                             : result.kind === "snippet"
