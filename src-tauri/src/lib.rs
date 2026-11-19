@@ -562,6 +562,13 @@ async fn run_script(
 }
 
 #[tauri::command]
+fn open_data_folder() -> Result<(), String> {
+    let dir = data_dir();
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    open::that(dir).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn open_scripts_folder() -> Result<(), String> {
     let dir = scripts::ensure_dir()?;
     open::that(dir).map_err(|e| e.to_string())
@@ -918,6 +925,7 @@ pub fn run() {
             get_scripts,
             run_script,
             open_scripts_folder,
+            open_data_folder,
             get_theme,
             set_theme,
             get_aliases,

@@ -541,6 +541,25 @@ function MaintenanceSection() {
           </button>
         </div>
       </div>
+      <div
+        className="mt-2 flex items-center justify-between gap-4 rounded-xl px-4 py-3"
+        style={{ border: "1px solid rgba(var(--fg-rgb), 0.07)" }}
+      >
+        <div>
+          <div className="text-sm text-gray-200">Data folder</div>
+          <div className="text-xs text-gray-500">
+            Where Keystrike keeps its settings, commands, pins and scripts.
+          </div>
+        </div>
+        <button
+          type="button"
+          className="shrink-0 rounded-md px-3 py-1.5 text-sm font-medium text-gray-200 transition-colors hover:bg-white/10"
+          style={{ border: "1px solid rgba(var(--fg-rgb), 0.12)" }}
+          onClick={() => invoke("open_data_folder").catch((e) => setMessage(`Failed: ${e}`))}
+        >
+          Open folder
+        </button>
+      </div>
     </section>
   );
 }
